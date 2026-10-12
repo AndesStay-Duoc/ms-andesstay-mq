@@ -1,0 +1,101 @@
+server:
+  port: 8086
+
+spring:
+  application:
+    name: ms-andesstay-mq
+
+  rabbitmq:
+    # La conexión AMQP la lee Spring Boot de este prefijo; no se duplica en andesstay.mq.
+    # Por aquí van todas las ESCRITURAS: declarar y eliminar colas, exchanges y bindings.
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:}
+    # El nombre de la variable es RABBITMQ_PASS dentro del contenedor, y el compose lo mapea desde
+    # RABBITMQ_PASSWORD del .env. Cambiar uno sin el otro deja la contraseña vacía y el broker
+    # responde ACCESS_REFUSED.
+    password: ${RABBITMQ_PASS:}
+    virtual-host: ${RABBITMQ_VHOST:andesstay}
+
+    # Este servicio no tiene ni un @RabbitListener ni publica mensajes de negocio, así que no hay
+    # bloque listener ni publisher-confirm: no habría nada a lo que aplicarlos.
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Firma (JWKS), vigencia, issuer y audience del JWT de Entra ID. Mismo registro de
+          # aplicación que el resto del sistema: un solo tenant y un solo clientId.
+          issuer-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID:055d11d1-8ae0-4221-a6f7-b50be0a623b4}/v2.0
+          jwk-set-uri: https://login.microsoftonline.com/${AZURE_TENANT_ID:055d11d1-8ae0-4221-a6f7-b50be0a623b4}/discovery/v2.0/keys
+          # Entra ID puede emitir aud como api://<clientId> o como el GUID del clientId.
+          audiences:
+            - api://${AZURE_CLIENT_ID:704a544f-3d92-44f5-aef9-8559574cff34}
+            - ${AZURE_CLIENT_ID:704a544f-3d92-44f5-aef9-8559574cff34}
+
+andesstay:
+  mq:
+    # El vhost se repite aquí y no se lee de spring.rabbitmq.virtual-host porque la API de gestión
+    # lo lleva en la URL (/api/queues/{vhost}), no en la conexión. Son dos usos distintos del mismo
+    # valor, y el de la URL necesita estar disponible fuera del ConnectionFactory.
+    vhost: ${RABBITMQ_VHOST:andesstay}
+
+    management:
+      # La API HTTP de gestión, en el 15672. Es lo único que permite LISTAR: el protocolo AMQP no
+      # define ninguna operación de listado. Ver broker/ManagementApiClient.
+      #
+      # El compose publica el 15672 solo en loopback, así que esto funciona porque el contenedor
+      # comparte la red del broker, no porque el puerto esté abierto al exterior.
+      url: ${RABBITMQ_MGMT_URL:http://localhost:15672}
+      # Necesita la etiqueta "administrator" en el broker para poder leer /api. El usuario que crea
+      # RABBITMQ_DEFAULT_USER ya la tiene.
+      usuario: ${RABBITMQ_USER:}
+      password: ${RABBITMQ_PASS:}
+
+    # Nombres que esta API se niega a eliminar o purgar sin ?forzar=true.
+    #
+    # Son la topología de AndesStay. Un DELETE accidental sobre q.cmd.email deja a
+    # ms-andesstay-notify sin su cola de trabajo y tira las notificaciones del sistema entero, y en
+    # RabbitMQ borrar una cola es irreversible: se van los mensajes que tuviera dentro.
+    #
+    # No es una prohibición: con ?forzar=true la operación procede. Es un seguro contra el error de
+    # dedo, no contra la intención, así que no se expone como variable de entorno: desactivarlo por
+    # configuración sería justo perder lo que aporta.
+    #
+    # Las tres colas .retry las agrega el rediseño del ACK manual de ms-andesstay-notify. Figuran
+    # ya aquí porque proteger una cola que todavía no existe no cuesta nada, y olvidarla después de
+    # crearla sí.
+    protegidos:
+      - q.cmd.email
+      - q.cmd.email.dlq
+      - q.cmd.email.retry
+      - q.cmd.housekeeping
+      - q.cmd.housekeeping.dlq
+      - q.cmd.housekeeping.retry
+      - q.cmd.voucher
+      - q.cmd.voucher.dlq
+      - q.cmd.voucher.retry
+      - cmd.direct
+      - cmd.topic
+      - cmd.dead.dlx
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Solo health e info. metrics describiría el broker a cualquiera que alcance el puerto, y
+        # aquí —al contrario que en notify— no hay ninguna métrica propia que exponer.
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+  health:
+    rabbit:
+      # Si este servicio no alcanza el broker no sirve para nada, así que el contenedor debe quedar
+      # unhealthy. Es el mismo criterio que en notify y el opuesto al de reservations, que sigue
+      # atendiendo reservas aunque la mensajería esté caída.
+      enabled: true
+
+logging:
+  level:
+    cl.andesstay: DEBUG
