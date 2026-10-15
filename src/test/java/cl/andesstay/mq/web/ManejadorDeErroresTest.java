@@ -203,15 +203,17 @@ class ManejadorDeErroresTest {
     // ── Errores de negocio ───────────────────────────────────────────────────
 
     @Test
-    @DisplayName("el seguro de los protegidos da 409 y dice cómo proceder")
+    @DisplayName("la protección da 409 y dice dónde se decide")
     void protegidoDa409ConLaSalida() {
         ResponseEntity<Map<String, Object>> respuesta = manejador.protegido(
                 new RecursoProtegidoException("cola", "q.cmd.email", "eliminar"));
 
         assertEquals(HttpStatus.CONFLICT, respuesta.getStatusCode());
         assertEquals("RECURSO_PROTEGIDO", cuerpo(respuesta).get("error"));
-        // Un 409 que no dice qué hacer a continuación obliga a leer el código fuente.
-        assertTrue(String.valueOf(cuerpo(respuesta).get("detalle")).contains("forzar=true"));
+        // Un 409 que no dice de dónde sale obliga a leer el código fuente.
+        String detalle = String.valueOf(cuerpo(respuesta).get("detalle"));
+        assertTrue(detalle.contains("andesstay.mq.protegidos"), detalle);
+        assertTrue(detalle.contains("ni siquiera con ?forzar=true"), detalle);
     }
 
     @SuppressWarnings("unchecked")

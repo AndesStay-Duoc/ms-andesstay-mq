@@ -7,12 +7,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Lee el inventario del broker por su API HTTP de gestión.
@@ -67,6 +69,40 @@ public class ManagementApiClient {
     public List<BindingApi> bindings() {
         return listar("/api/bindings/{vhost}", COLUMNAS_BINDINGS, new ParameterizedTypeReference<List<BindingApi>>() {
         });
+    }
+
+    /**
+     * Un solo exchange, o vacío si no existe.
+     *
+     * Un 404 aquí es una respuesta normal —el exchange no existe— y no un fallo de la API, así que
+     * se devuelve vacío en lugar de lanzar. La API de gestión responde lo mismo cuando el que no
+     * existe es el vhost; ese caso ya lo delata el listado, que sí lo trata como error.
+     *
+     * El nombre viaja como variable de plantilla por la misma razón que el vhost: así se codifica.
+     */
+    public Optional<ExchangeApi> exchange(String nombre) {
+        String ruta = "/api/exchanges/{vhost}/{nombre}";
+        try {
+            return Optional.ofNullable(cliente.get()
+                    .uri(builder -> builder.path(ruta)
+                            .queryParam("columns", COLUMNAS_EXCHANGES).build(vhost, nombre))
+                    .retrieve()
+                    .body(ExchangeApi.class));
+
+        } catch (HttpClientErrorException.NotFound e) {
+            return Optional.empty();
+
+        } catch (ResourceAccessException e) {
+            log.error("[Gestión] No se alcanzó la API de gestión en {}: {}", ruta, e.getMessage());
+            throw new ApiDeGestionException(
+                    "no se pudo contactar la API de gestión del broker", false, e);
+
+        } catch (RestClientResponseException e) {
+            log.error("[Gestión] La API de gestión respondió {} en {}: {}",
+                    e.getStatusCode(), ruta, e.getResponseBodyAsString());
+            throw new ApiDeGestionException(
+                    "la API de gestión respondió " + e.getStatusCode(), true, e);
+        }
     }
 
     /**

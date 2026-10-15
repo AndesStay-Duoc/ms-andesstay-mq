@@ -159,37 +159,37 @@ class QueueServiceTest {
         assertThrows(IllegalStateException.class, () -> servicio.crear(peticion(COLA_LIBRE)));
     }
 
-    // ── Baja y purga, con el seguro de los protegidos ────────────────────────
+    // ── Baja y purga, con la protección de la topología ──────────────────────
 
-    @Test
-    @DisplayName("eliminar una cola de la topología de AndesStay sin forzar se rechaza")
-    void protegidaNoSeEliminaSinForzar() {
+    @ParameterizedTest(name = "forzar={0}")
+    @ValueSource(booleans = {false, true})
+    @DisplayName("una cola de la topología de AndesStay no se elimina, ni siquiera con forzar=true")
+    void protegidaNoSeElimina(boolean forzar) {
         RecursoProtegidoException e = assertThrows(RecursoProtegidoException.class,
-                () -> servicio.eliminar(COLA_PROTEGIDA, false));
+                () -> servicio.eliminar(COLA_PROTEGIDA, forzar));
 
         assertEquals(COLA_PROTEGIDA, e.getNombre());
-        assertTrue(e.getMessage().contains("forzar=true"),
-                "el mensaje tiene que decir cómo proceder: " + e.getMessage());
+        assertTrue(e.getMessage().contains("ni siquiera con ?forzar=true"),
+                "el mensaje tiene que decir que forzar no la levanta: " + e.getMessage());
         // Lo esencial: no se llegó a borrar nada. Borrar una cola en RabbitMQ es irreversible.
         verify(amqpAdmin, never()).deleteQueue(anyString());
     }
 
-    @Test
-    @DisplayName("con forzar=true la cola protegida sí se elimina")
-    void protegidaSeEliminaConForzar() {
-        servicio.eliminar(COLA_PROTEGIDA, true);
+    @ParameterizedTest(name = "forzar={0}")
+    @ValueSource(booleans = {false, true})
+    @DisplayName("purgar también pasa por la protección: descartar notificaciones pendientes es destructivo")
+    void purgarProtegidaTambienSeRechaza(boolean forzar) {
+        assertThrows(RecursoProtegidoException.class, () -> servicio.purgar(COLA_PROTEGIDA, forzar));
 
-        // El seguro protege del error de dedo, no de la intención: sigue siendo una API de
-        // administración completa.
-        verify(amqpAdmin).deleteQueue(COLA_PROTEGIDA);
+        verify(amqpAdmin, never()).purgeQueue(anyString());
     }
 
     @Test
-    @DisplayName("purgar también pasa por el seguro: descartar notificaciones pendientes es destructivo")
-    void purgarProtegidaTambienSeRechaza() {
-        assertThrows(RecursoProtegidoException.class, () -> servicio.purgar(COLA_PROTEGIDA, false));
+    @DisplayName("forzar=true sobre una cola libre sigue funcionando como antes")
+    void forzarEnColaLibre() {
+        servicio.eliminar(COLA_LIBRE, true);
 
-        verify(amqpAdmin, never()).purgeQueue(anyString());
+        verify(amqpAdmin).deleteQueue(COLA_LIBRE);
     }
 
     @Test

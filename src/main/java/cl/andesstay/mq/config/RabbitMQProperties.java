@@ -36,15 +36,16 @@ public record RabbitMQProperties(
         @Valid Management management,
 
         /**
-         * Nombres que esta API se niega a eliminar o purgar sin confirmacion explicita.
+         * Nombres que esta API se niega a eliminar o purgar, y cuyos bindings no deja crear hacia
+         * ellos ni eliminar.
          *
          * Son las colas y los exchanges de la topologia de AndesStay. Un DELETE accidental sobre
          * q.cmd.email deja a ms-andesstay-notify sin su cola de trabajo y tira las notificaciones
          * del sistema entero, y un borrado de cola en RabbitMQ es irreversible: se van los mensajes
          * que tuviera dentro.
          *
-         * No es una prohibicion, es un seguro: con ?forzar=true la operacion procede. Asi la API
-         * sigue siendo una API de administracion completa y el error de dedo deja de ser posible.
+         * ?forzar=true no la levanta. Cambiar la topologia del sistema exige cambiar esta lista y
+         * volver a desplegar, de modo que no pueda ocurrir por un parametro de mas en una peticion.
          */
         List<String> protegidos
 ) {

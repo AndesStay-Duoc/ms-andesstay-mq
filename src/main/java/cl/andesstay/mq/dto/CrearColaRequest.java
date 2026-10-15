@@ -1,6 +1,7 @@
 package cl.andesstay.mq.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import java.util.Map;
@@ -18,6 +19,8 @@ public record CrearColaRequest(
         /** El límite de 255 bytes es del protocolo AMQP, no una decisión de esta API. */
         @NotBlank(message = "el nombre de la cola es obligatorio")
         @Size(max = 255, message = "el nombre no puede pasar de 255 caracteres")
+        @Pattern(regexp = Restricciones.CARACTERES_DE_NOMBRE,
+                message = Restricciones.MENSAJE_CARACTERES_DE_NOMBRE)
         String nombre,
 
         Boolean durable,

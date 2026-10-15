@@ -143,10 +143,10 @@ class QueueControllerTest {
     @Test
     @DisplayName("200 · la purga responde con el conteo, por eso no es 204")
     void purga200ConConteo() throws Exception {
-        when(servicio.purgar(eq("q.cmd.email.dlq"), eq(true)))
-                .thenReturn(OperacionResultado.purga("q.cmd.email.dlq", 42));
+        when(servicio.purgar(eq("q.pruebas.demo.dlq"), eq(true)))
+                .thenReturn(OperacionResultado.purga("q.pruebas.demo.dlq", 42));
 
-        mockMvc.perform(comoAdmin(post(RUTA + "/q.cmd.email.dlq/purge").param("forzar", "true")))
+        mockMvc.perform(comoAdmin(post(RUTA + "/q.pruebas.demo.dlq/purge").param("forzar", "true")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mensajesPurgados").value(42));
     }
@@ -162,6 +162,20 @@ class QueueControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("VALIDACION"))
                 .andExpect(jsonPath("$.campos.nombre").exists());
+
+        verify(servicio, never()).crear(any());
+    }
+
+    @Test
+    @DisplayName("400 · un nombre con espacios, barras o tildes no llega al servicio")
+    void nombreConCaracteresInvalidosEs400() throws Exception {
+        mockMvc.perform(comoAdmin(post(RUTA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nombre\":\"q.reservas/año 1\"}")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("VALIDACION"))
+                .andExpect(jsonPath("$.campos.nombre").value(
+                        org.hamcrest.Matchers.containsString("solo admite")));
 
         verify(servicio, never()).crear(any());
     }
@@ -206,7 +220,7 @@ class QueueControllerTest {
     }
 
     @Test
-    @DisplayName("409 · eliminar una cola de la topología de AndesStay sin forzar")
+    @DisplayName("409 · eliminar una cola de la topología de AndesStay")
     void protegidaEs409() throws Exception {
         when(servicio.eliminar(eq("q.cmd.email"), eq(false)))
                 .thenThrow(new RecursoProtegidoException("cola", "q.cmd.email", "eliminar"));
@@ -214,9 +228,12 @@ class QueueControllerTest {
         mockMvc.perform(comoAdmin(delete(RUTA + "/q.cmd.email")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value("RECURSO_PROTEGIDO"))
-                // El 409 tiene que decir cómo proceder, o hay que leer el código fuente.
+                // El 409 tiene que decir dónde se decide la protección, o hay que leer el código
+                // fuente, y que forzar no la levanta.
                 .andExpect(jsonPath("$.detalle").value(
-                        org.hamcrest.Matchers.containsString("forzar=true")));
+                        org.hamcrest.Matchers.allOf(
+                                org.hamcrest.Matchers.containsString("andesstay.mq.protegidos"),
+                                org.hamcrest.Matchers.containsString("ni siquiera con ?forzar=true"))));
     }
 
     @Test

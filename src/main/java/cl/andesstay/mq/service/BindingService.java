@@ -1,10 +1,12 @@
 package cl.andesstay.mq.service;
 
 import cl.andesstay.mq.broker.ManagementApiClient;
+import cl.andesstay.mq.config.RabbitMQProperties;
 import cl.andesstay.mq.dto.BindingResumen;
 import cl.andesstay.mq.dto.CrearBindingRequest;
 import cl.andesstay.mq.dto.OperacionResultado;
 import cl.andesstay.mq.dto.TipoDestino;
+import cl.andesstay.mq.web.RecursoProtegidoException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.AmqpAdmin;
@@ -36,9 +38,18 @@ public class BindingService {
 
     private final AmqpAdmin amqpAdmin;
     private final ManagementApiClient gestion;
+    private final RabbitMQProperties propiedades;
 
-    /** Declara el binding. Repetirlo con la misma tripleta es idempotente y no duplica la regla. */
+    /**
+     * Declara el binding. Repetirlo con la misma tripleta es idempotente y no duplica la regla.
+     *
+     * Se permite crear un binding DESDE un exchange protegido hacia un destino nuevo: solo agrega
+     * una copia de los mensajes y no le quita nada a la topología. No se permite HACIA un recurso
+     * protegido, porque metería mensajes ajenos en una cola o un exchange del sistema.
+     */
     public OperacionResultado crear(CrearBindingRequest peticion) {
+        rechazarDestinoProtegido(peticion.destino(), peticion.tipoDestinoOPorOmision(), "crear");
+
         Binding binding = construir(
                 peticion.exchange(),
                 peticion.destino(),
@@ -78,10 +89,12 @@ public class BindingService {
     /**
      * Elimina el binding.
      *
-     * No lleva seguro de protección, al contrario que las colas y los exchanges, y es una decisión:
-     * un binding borrado se vuelve a crear con una sola petición y no se pierde ningún mensaje ya
-     * encolado. Lo que sí ocurre es que los mensajes PUBLICADOS mientras no existe se descartan sin
-     * aviso, así que la respuesta lo dice.
+     * No se puede eliminar uno que salga de un exchange protegido ni que llegue a un recurso
+     * protegido. Un binding borrado se vuelve a crear con una sola petición y no se pierde ningún
+     * mensaje ya encolado, pero los PUBLICADOS mientras no existe se descartan sin aviso: quitar
+     * cmd.direct -> q.cmd.email con email.send cortaría el flujo de correos sin borrar nada visible
+     * y sin que ningún servicio diera error. Fuera de la topología no hay restricción, y la
+     * respuesta advierte de esos descartes.
      */
     public OperacionResultado eliminar(String exchange, String destino,
                                        TipoDestino tipoDestino, String routingKey) {
@@ -94,6 +107,12 @@ public class BindingService {
                             + "y esos no se pueden eliminar");
         }
 
+        if (propiedades.esProtegido(exchange)) {
+            throw new RecursoProtegidoException(exchange,
+                    "eliminar un binding desde el exchange '" + exchange + "'");
+        }
+        rechazarDestinoProtegido(destino, tipoDestino, "eliminar");
+
         String rk = routingKey == null ? "" : routingKey;
         // removeBinding no devuelve nada: cuando la tripleta no existe, el broker responde
         // NOT_FOUND y sube como AmqpIOException, que el manejador traduce a 404.
@@ -102,6 +121,18 @@ public class BindingService {
         log.warn("[Bindings] Eliminado {} -> {} ({}) rk={}", exchange, destino, tipoDestino, rk);
         return OperacionResultado.de(RECURSO, descripcion(exchange, destino, rk), "eliminado",
                 "los mensajes que se publiquen por esta ruta se descartarán sin aviso");
+    }
+
+    /**
+     * La lista de protegidos no distingue colas de exchanges, así que basta el nombre; el tipo solo
+     * sirve para que el mensaje diga qué es.
+     */
+    private void rechazarDestinoProtegido(String destino, TipoDestino tipoDestino, String operacion) {
+        if (propiedades.esProtegido(destino)) {
+            String recurso = tipoDestino == TipoDestino.EXCHANGE ? "el exchange" : "la cola";
+            throw new RecursoProtegidoException(destino,
+                    operacion + " un binding hacia " + recurso + " '" + destino + "'");
+        }
     }
 
     private Binding construir(String exchange, String destino,

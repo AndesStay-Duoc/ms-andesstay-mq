@@ -52,15 +52,17 @@ andesstay:
       usuario: ${RABBITMQ_USER:}
       password: ${RABBITMQ_PASS:}
 
-    # Nombres que esta API se niega a eliminar o purgar sin ?forzar=true.
+    # Nombres que esta API se niega a eliminar o purgar. Tampoco deja crear bindings HACIA ellos ni
+    # eliminar los que salen de ellos o llegan a ellos; sí deja crear bindings DESDE un exchange
+    # protegido hacia una cola nueva, porque eso solo agrega una copia de los mensajes.
     #
     # Son la topología de AndesStay. Un DELETE accidental sobre q.cmd.email deja a
     # ms-andesstay-notify sin su cola de trabajo y tira las notificaciones del sistema entero, y en
     # RabbitMQ borrar una cola es irreversible: se van los mensajes que tuviera dentro.
     #
-    # No es una prohibición: con ?forzar=true la operación procede. Es un seguro contra el error de
-    # dedo, no contra la intención, así que no se expone como variable de entorno: desactivarlo por
-    # configuración sería justo perder lo que aporta.
+    # ?forzar=true no levanta la protección: cambiar la topología del sistema exige cambiar esta
+    # lista y volver a desplegar. Por lo mismo no se expone como variable de entorno: desactivarla
+    # por configuración del despliegue sería justo perder lo que aporta.
     #
     # Las tres colas .retry las agrega el rediseño del ACK manual de ms-andesstay-notify. Figuran
     # ya aquí porque proteger una cola que todavía no existe no cuesta nada, y olvidarla después de
