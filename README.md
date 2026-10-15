@@ -39,10 +39,10 @@ Todas exigen un JWT de Entra ID con el **rol `Admin`**.
 | `POST` | `/api/v1/mq/exchanges` | `201` `400` `401` `403` `409` |
 | `GET` | `/api/v1/mq/exchanges` | `200` `401` `403` `503` |
 | `GET` | `/api/v1/mq/exchanges/{nombre}` | `200` `401` `403` `404` `503` |
-| `DELETE` | `/api/v1/mq/exchanges/{nombre}` | `204` `401` `403` `404` `409` |
+| `DELETE` | `/api/v1/mq/exchanges/{nombre}` | `204` `401` `403` `404` `409` `503` |
 | `POST` | `/api/v1/mq/bindings` | `201` `400` `401` `403` `404` `409` |
 | `GET` | `/api/v1/mq/bindings` | `200` `401` `403` `503` |
-| `DELETE` | `/api/v1/mq/bindings` | `204` `400` `401` `403` `404` `409` |
+| `DELETE` | `/api/v1/mq/bindings` | `204` `400` `401` `403` `404` `409` `503` |
 
 Un binding no tiene nombre propio —lo identifica la tripleta `(exchange, destino, routing key)`—
 así que su baja lleva los tres valores como parámetros de consulta en lugar de un identificador en
@@ -61,9 +61,9 @@ Las nueve colas y los tres exchanges del caso están en una lista de **protegido
 |---|---|
 | Eliminar o purgar una cola protegida | `409 RECURSO_PROTEGIDO` |
 | Eliminar un exchange protegido | `409 RECURSO_PROTEGIDO` |
-| Crear un binding **hacia** una cola o un exchange protegido | `409 RECURSO_PROTEGIDO` |
-| Eliminar un binding que **sale de** un exchange protegido o **llega a** un recurso protegido | `409 RECURSO_PROTEGIDO` |
-| Crear un binding **desde** un exchange protegido hacia una cola nueva | `201`: solo agrega una copia de los mensajes |
+| Crear o eliminar un binding **de la topología del sistema** (los que declara notify: de un exchange protegido a una cola o un exchange protegido) | `409 RECURSO_PROTEGIDO` |
+| Crear o eliminar un binding **hacia una cola protegida**, venga del exchange que venga | `409 RECURSO_PROTEGIDO` |
+| Crear o eliminar un binding **desde** un exchange protegido hacia una cola que no es del sistema | Permitido: solo agrega una copia de los mensajes |
 
 **`?forzar=true` no levanta la protección.** Cambiar la topología del sistema exige cambiar la lista
 y volver a desplegar, de modo que no pueda ocurrir por un parámetro de más en una petición. Borrar
@@ -80,8 +80,9 @@ Dos consecuencias conviene tenerlas presentes:
 - **Las DLQ del sistema no se purgan desde aquí.** Tampoco hace falta en el uso normal:
   `DeadLetterConsumer` de notify toma cada mensaje, lo registra en el log y lo confirma, así que la
   DLQ se mantiene vacía. Si alguna vez hubiera que vaciar una, se hace desde la Management UI.
-- **Un binding creado desde un exchange protegido no se puede quitar por la API**, porque sale de
-  un exchange protegido. Desaparece al eliminar su cola de destino, que sí es libre.
+- **Un binding hacia un exchange protegido desde un exchange que no es del sistema se permite.**
+  No es parte de la topología y no llega directo a una cola protegida, pero sí le entrega mensajes
+  a `cmd.direct` o `cmd.topic`, que los reparten a sus colas. Conviene tenerlo presente al crearlo.
 
 El aviso de `409` dice dónde se decide la protección:
 
@@ -160,13 +161,15 @@ por `q.cmd.` queda espejada en los dos nodos automáticamente. No aparece en nin
 petición; se comprueba en el campo `politica` de la respuesta del listado.
 
 **`deleteQueue` y `purgeQueue` no fallan igual.** La primera captura el `NOT_FOUND` del canal y
-devuelve `false`; la segunda lo deja subir como excepción. Por eso el `404` de eliminar sale de un
-booleano y el de purgar del `@RestControllerAdvice`.
+devuelve `false`; la segunda lo deja subir como excepción. Por eso, en un broker anterior, el `404` de
+eliminar sale de un booleano y el de purgar del `@RestControllerAdvice`.
 
-Con RabbitMQ 3.13, que es la versión del compose, `queue.delete` y `exchange.delete` son
-**idempotentes**: borrar algo que no existe responde bien. En la prueba contra el broker real,
-`DELETE` sobre una cola o un exchange inexistentes respondió `204` y no `404`. La purga y las
-consultas sí responden `404`.
+Con RabbitMQ 3.13, que es la versión del compose, `queue.delete`, `exchange.delete` y los `unbind`
+son **idempotentes**: borrar algo que no existe responde bien, y `deleteQueue` devuelve `true`. Por
+eso las tres bajas **comprueban antes que el recurso exista** y responden `404
+RECURSO_NO_ENCONTRADO` si no está: la cola por AMQP (`getQueueInfo`), el exchange y el binding por
+la API de gestión. La baja de un binding usa además los argumentos del binding existente, porque
+RabbitMQ lo identifica también por ellos.
 
 ## Stack
 

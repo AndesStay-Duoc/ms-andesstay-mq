@@ -7,7 +7,7 @@ public class RecursoNoEncontradoException extends RuntimeException {
     private final String nombre;
 
     public RecursoNoEncontradoException(String recurso, String nombre) {
-        super("no existe la " + recurso + " '" + nombre + "'");
+        super("no existe " + ("cola".equals(recurso) ? "la " : "el ") + recurso + " '" + nombre + "'");
         this.recurso = recurso;
         this.nombre = nombre;
     }

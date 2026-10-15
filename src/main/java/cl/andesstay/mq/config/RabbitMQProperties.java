@@ -36,8 +36,8 @@ public record RabbitMQProperties(
         @Valid Management management,
 
         /**
-         * Nombres que esta API se niega a eliminar o purgar, y cuyos bindings no deja crear hacia
-         * ellos ni eliminar.
+         * Nombres que esta API se niega a eliminar o purgar. Sus bindings del sistema, y los que
+         * llegan a una cola protegida, tampoco se crean ni se eliminan (ver BindingService).
          *
          * Son las colas y los exchanges de la topologia de AndesStay. Un DELETE accidental sobre
          * q.cmd.email deja a ms-andesstay-notify sin su cola de trabajo y tira las notificaciones

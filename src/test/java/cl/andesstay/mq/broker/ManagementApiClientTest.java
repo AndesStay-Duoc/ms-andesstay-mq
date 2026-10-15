@@ -31,6 +31,8 @@ class ManagementApiClientTest {
 
     private static final String BASE = "http://gestion:15672";
     private static final String COLUMNAS = "?columns=name,type,durable,auto_delete,internal,arguments";
+    private static final String COLUMNAS_BINDINGS =
+            "?columns=source,destination,destination_type,routing_key,arguments";
 
     private MockRestServiceServer servidor;
     private ManagementApiClient cliente;
@@ -71,6 +73,31 @@ class ManagementApiClientTest {
                         .contentType(MediaType.APPLICATION_JSON));
 
         assertTrue(cliente.exchange("ex.no.existe").isEmpty());
+        servidor.verify();
+    }
+
+    @Test
+    @DisplayName("los bindings entre un exchange y una cola se leen de /e/{exchange}/q/{cola}")
+    void bindingsHaciaCola() {
+        servidor.expect(requestTo(BASE + "/api/bindings/andesstay/e/cmd.topic/q/q.demo.espia" + COLUMNAS_BINDINGS))
+                .andRespond(withSuccess("""
+                        [{"source":"cmd.topic","destination":"q.demo.espia","destination_type":"queue",
+                          "routing_key":"email.*","arguments":{}}]""", MediaType.APPLICATION_JSON));
+
+        List<ManagementApiClient.BindingApi> bindings = cliente.bindingsEntre("cmd.topic", "q.demo.espia", true);
+
+        assertEquals(1, bindings.size());
+        assertEquals("email.*", bindings.get(0).routingKey());
+        servidor.verify();
+    }
+
+    @Test
+    @DisplayName("hacia un exchange se usa el segmento /e/, y un 404 (extremo inexistente) es lista vacía")
+    void bindingsHaciaExchangeInexistente() {
+        servidor.expect(requestTo(BASE + "/api/bindings/andesstay/e/ex.demo/e/ex.no.existe" + COLUMNAS_BINDINGS))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertTrue(cliente.bindingsEntre("ex.demo", "ex.no.existe", false).isEmpty());
         servidor.verify();
     }
 

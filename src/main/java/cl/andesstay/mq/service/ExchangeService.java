@@ -100,7 +100,15 @@ public class ExchangeService {
             throw new RecursoProtegidoException("el exchange", nombre, "eliminar");
         }
 
-        // Igual que deleteQueue: devuelve false en lugar de lanzar cuando no existe.
+        // Se comprueba ANTES de borrar porque desde RabbitMQ 3.13 exchange.delete es idempotente:
+        // sobre un exchange inexistente deleteExchange devuelve true. AMQP no tiene forma de
+        // consultar un exchange sin declararlo, así que la comprobación va por la API de gestión;
+        // si el 15672 no responde, la baja sale como 503 en lugar de responder sin saber.
+        if (gestion.exchange(nombre).isEmpty()) {
+            throw new RecursoNoEncontradoException(RECURSO, nombre);
+        }
+
+        // Para los brokers anteriores, donde deleteExchange devuelve false si no existe.
         if (!amqpAdmin.deleteExchange(nombre)) {
             throw new RecursoNoEncontradoException(RECURSO, nombre);
         }

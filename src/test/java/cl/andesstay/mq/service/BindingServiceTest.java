@@ -4,6 +4,7 @@ import cl.andesstay.mq.broker.ManagementApiClient;
 import cl.andesstay.mq.config.RabbitMQProperties;
 import cl.andesstay.mq.dto.CrearBindingRequest;
 import cl.andesstay.mq.dto.TipoDestino;
+import cl.andesstay.mq.web.RecursoNoEncontradoException;
 import cl.andesstay.mq.web.RecursoProtegidoException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -19,13 +20,17 @@ import org.springframework.amqp.core.AmqpAdmin;
 import org.springframework.amqp.core.Binding;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Las trampas del recurso de bindings.
@@ -149,6 +154,8 @@ class BindingServiceTest {
     @Test
     @DisplayName("eliminar un binding fuera de la topología sí llega al broker")
     void eliminarBindingNormal() {
+        existe("ex.demo", "q.demo.email", "demo.send", null);
+
         servicio.eliminar("ex.demo", "q.demo.email", TipoDestino.QUEUE, "demo.send");
 
         ArgumentCaptor<Binding> quitado = ArgumentCaptor.forClass(Binding.class);
@@ -156,6 +163,66 @@ class BindingServiceTest {
 
         assertEquals("ex.demo", quitado.getValue().getExchange());
         assertEquals("q.demo.email", quitado.getValue().getDestination());
+    }
+
+    /** Simula que la API de gestión informa ese binding entre el exchange y la cola. */
+    private void existe(String exchange, String cola, String routingKey, Map<String, Object> argumentos) {
+        when(gestion.bindingsEntre(exchange, cola, true)).thenReturn(List.of(
+                new ManagementApiClient.BindingApi(exchange, cola, "queue", routingKey, argumentos)));
+    }
+
+    // ── Existencia antes de la baja ──────────────────────────────────────────
+
+    @Nested
+    @DisplayName("baja de un binding que no existe")
+    class Inexistente {
+
+        @Test
+        @DisplayName("sin ningún binding entre el exchange y la cola da 404 y no llega al broker")
+        void sinBindingDa404() {
+            // queue.unbind responde bien aunque la regla no exista: sin la comprobación, la API
+            // respondería 204 a una baja equivocada.
+            when(gestion.bindingsEntre("ex.demo", "q.demo.email", true)).thenReturn(List.of());
+
+            RecursoNoEncontradoException e = assertThrows(RecursoNoEncontradoException.class,
+                    () -> servicio.eliminar("ex.demo", "q.demo.email", TipoDestino.QUEUE, "demo.send"));
+
+            assertEquals("binding", e.getRecurso());
+            assertEquals("ex.demo -> q.demo.email (rk=demo.send)", e.getNombre());
+            verify(amqpAdmin, never()).removeBinding(any());
+        }
+
+        @Test
+        @DisplayName("un binding entre los mismos extremos con otra routing key no cuenta")
+        void otraRoutingKeyDa404() {
+            existe("ex.demo", "q.demo.email", "demo.otra", null);
+
+            assertThrows(RecursoNoEncontradoException.class,
+                    () -> servicio.eliminar("ex.demo", "q.demo.email", TipoDestino.QUEUE, "demo.send"));
+            verify(amqpAdmin, never()).removeBinding(any());
+        }
+
+        @Test
+        @DisplayName("hacia un exchange, la consulta pide el segmento de exchange y no el de cola")
+        void destinoExchange() {
+            when(gestion.bindingsEntre("ex.demo", "ex.demo.copia", false)).thenReturn(List.of());
+
+            assertThrows(RecursoNoEncontradoException.class,
+                    () -> servicio.eliminar("ex.demo", "ex.demo.copia", TipoDestino.EXCHANGE, "demo.#"));
+            verify(gestion).bindingsEntre("ex.demo", "ex.demo.copia", false);
+        }
+
+        @Test
+        @DisplayName("la baja usa los argumentos del binding existente, o el broker no lo reconoce")
+        void usaLosArgumentosExistentes() {
+            existe("ex.demo", "q.demo.email", "", Map.of("x-match", "all", "plantilla", "voucher"));
+
+            servicio.eliminar("ex.demo", "q.demo.email", TipoDestino.QUEUE, "");
+
+            ArgumentCaptor<Binding> quitado = ArgumentCaptor.forClass(Binding.class);
+            verify(amqpAdmin).removeBinding(quitado.capture());
+            assertEquals("all", quitado.getValue().getArguments().get("x-match"));
+        }
     }
 
     // ── Protección de la topología ───────────────────────────────────────────
@@ -177,42 +244,36 @@ class BindingServiceTest {
         }
 
         @Test
-        @DisplayName("tampoco HACIA un exchange protegido")
-        void crearHaciaExchangeProtegido() {
+        @DisplayName("el binding del sistema cmd.direct -> q.cmd.email no se puede quitar")
+        void bindingDelSistema() {
             RecursoProtegidoException e = assertThrows(RecursoProtegidoException.class,
-                    () -> servicio.crear(new CrearBindingRequest(
-                            "ex.demo", "cmd.direct", "EXCHANGE", "email.send", null)));
+                    () -> servicio.eliminar("cmd.direct", "q.cmd.email", TipoDestino.QUEUE, "email.send"));
 
-            assertTrue(e.getMessage().contains("hacia el exchange 'cmd.direct'"), e.getMessage());
-            verify(amqpAdmin, never()).declareBinding(any());
+            assertTrue(e.getMessage().contains("el binding del sistema 'cmd.direct -> q.cmd.email'"), e.getMessage());
+            verify(amqpAdmin, never()).removeBinding(any());
+            // La protección se decide antes de consultar nada: no hace falta la API de gestión.
+            verify(gestion, never()).bindingsEntre(anyString(), anyString(), anyBoolean());
         }
 
         @Test
-        @DisplayName("sí se crea un binding DESDE un exchange protegido hacia una cola nueva")
-        void crearDesdeExchangeProtegido() {
-            // Solo agrega una copia de los mensajes: no le quita nada a la topología. Es lo que
-            // permite, por ejemplo, observar el tráfico de cmd.topic en una cola de pruebas.
-            servicio.crear(new CrearBindingRequest(
-                    "cmd.topic", "q.demo.espia", "QUEUE", "email.*", null));
-
-            verify(amqpAdmin).declareBinding(any(Binding.class));
-        }
-
-        @Test
-        @DisplayName("no se elimina un binding que SALE de un exchange protegido")
-        void eliminarDesdeExchangeProtegido() {
-            // Incluido el que se acaba de crear hacia una cola nueva: quitar cmd.direct -> q.cmd.email
-            // y quitar cmd.topic -> q.demo.espia son, para esta regla, la misma operación.
-            RecursoProtegidoException e = assertThrows(RecursoProtegidoException.class,
-                    () -> servicio.eliminar("cmd.topic", "q.demo.espia", TipoDestino.QUEUE, "email.*"));
-
-            assertEquals("cmd.topic", e.getNombre());
-            assertTrue(e.getMessage().contains("desde el exchange 'cmd.topic'"), e.getMessage());
+        @DisplayName("tampoco el de un exchange del sistema hacia una DLQ del sistema")
+        void bindingDelSistemaHaciaDlq() {
+            assertThrows(RecursoProtegidoException.class,
+                    () -> servicio.eliminar("cmd.dead.dlx", "q.cmd.email.dlq", TipoDestino.QUEUE, "email.dead"));
             verify(amqpAdmin, never()).removeBinding(any());
         }
 
         @Test
-        @DisplayName("no se elimina un binding que LLEGA a una cola protegida")
+        @DisplayName("entre dos exchanges del sistema también cuenta como topología")
+        void entreExchangesDelSistema() {
+            assertThrows(RecursoProtegidoException.class,
+                    () -> servicio.crear(new CrearBindingRequest(
+                            "cmd.topic", "cmd.direct", "EXCHANGE", "email.#", null)));
+            verify(amqpAdmin, never()).declareBinding(any());
+        }
+
+        @Test
+        @DisplayName("no se elimina un binding que LLEGA a una cola protegida, aunque salga de otro exchange")
         void eliminarHaciaColaProtegida() {
             RecursoProtegidoException e = assertThrows(RecursoProtegidoException.class,
                     () -> servicio.eliminar("ex.demo", "q.cmd.email.dlq", TipoDestino.QUEUE, "demo.dead"));
@@ -222,12 +283,18 @@ class BindingServiceTest {
         }
 
         @Test
-        @DisplayName("el binding del sistema cmd.direct -> q.cmd.email no se puede quitar")
-        void bindingDelSistema() {
-            assertThrows(RecursoProtegidoException.class,
-                    () -> servicio.eliminar("cmd.direct", "q.cmd.email", TipoDestino.QUEUE, "email.send"));
+        @DisplayName("desde un exchange del sistema hacia una cola que no es del sistema: se crea y se elimina")
+        void desdeExchangeProtegidoHaciaColaLibre() {
+            // Solo agrega una copia de los mensajes: no le quita nada a la topología. Es lo que
+            // permite, por ejemplo, observar el tráfico de cmd.topic en una cola de pruebas, y
+            // retirarla después sin tener que borrar la cola.
+            servicio.crear(new CrearBindingRequest(
+                    "cmd.topic", "q.demo.espia", "QUEUE", "email.*", null));
+            verify(amqpAdmin).declareBinding(any(Binding.class));
 
-            verify(amqpAdmin, never()).removeBinding(any());
+            existe("cmd.topic", "q.demo.espia", "email.*", null);
+            servicio.eliminar("cmd.topic", "q.demo.espia", TipoDestino.QUEUE, "email.*");
+            verify(amqpAdmin).removeBinding(any(Binding.class));
         }
     }
 }

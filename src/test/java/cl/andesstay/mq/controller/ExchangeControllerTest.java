@@ -109,6 +109,17 @@ class ExchangeControllerTest {
         verify(servicio, never()).crear(any());
     }
 
+    @Test
+    @DisplayName("404 · eliminar un exchange que no existe")
+    void eliminarInexistente404() throws Exception {
+        when(servicio.eliminar(eq("ex.no.existe"), eq(false)))
+                .thenThrow(new RecursoNoEncontradoException("exchange", "ex.no.existe"));
+
+        mockMvc.perform(comoAdmin(delete(RUTA + "/ex.no.existe")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("RECURSO_NO_ENCONTRADO"));
+    }
+
     // ── 409 · protegidos ─────────────────────────────────────────────────────
 
     @Test

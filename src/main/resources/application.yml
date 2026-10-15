@@ -52,9 +52,10 @@ andesstay:
       usuario: ${RABBITMQ_USER:}
       password: ${RABBITMQ_PASS:}
 
-    # Nombres que esta API se niega a eliminar o purgar. Tampoco deja crear bindings HACIA ellos ni
-    # eliminar los que salen de ellos o llegan a ellos; sí deja crear bindings DESDE un exchange
-    # protegido hacia una cola nueva, porque eso solo agrega una copia de los mensajes.
+    # Nombres que esta API se niega a eliminar o purgar. Tampoco deja crear ni eliminar los bindings
+    # de la topología del sistema (de un exchange protegido a un recurso protegido) ni los que llegan
+    # a una cola protegida. Un binding DESDE un exchange protegido hacia una cola que no es del
+    # sistema sí se crea y se elimina: solo agrega una copia de los mensajes.
     #
     # Son la topología de AndesStay. Un DELETE accidental sobre q.cmd.email deja a
     # ms-andesstay-notify sin su cola de trabajo y tira las notificaciones del sistema entero, y en

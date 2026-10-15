@@ -128,9 +128,16 @@ public class QueueService {
     public OperacionResultado eliminar(String nombre, boolean forzar) {
         comprobarProteccion(nombre, "eliminar");
 
-        // deleteQueue devuelve false en lugar de lanzar cuando la cola no existe: RabbitAdmin
-        // captura el NOT_FOUND del canal. Por eso aquí el 404 sale de un booleano y no del
-        // manejador de errores.
+        // Se comprueba ANTES de borrar porque desde RabbitMQ 3.13 queue.delete es idempotente:
+        // sobre una cola inexistente el broker responde bien y deleteQueue devuelve true, así
+        // que el booleano de abajo ya no detecta el caso. getQueueInfo va por AMQP, como la
+        // baja, y no añade una dependencia de la API de gestión.
+        if (amqpAdmin.getQueueInfo(nombre) == null) {
+            throw new RecursoNoEncontradoException(RECURSO, nombre);
+        }
+
+        // Se conserva para los brokers anteriores, donde deleteQueue devuelve false en lugar de
+        // lanzar cuando la cola no existe: RabbitAdmin captura el NOT_FOUND del canal.
         if (!amqpAdmin.deleteQueue(nombre)) {
             throw new RecursoNoEncontradoException(RECURSO, nombre);
         }

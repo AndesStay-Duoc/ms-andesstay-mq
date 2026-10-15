@@ -6,6 +6,7 @@ import cl.andesstay.mq.dto.BindingResumen;
 import cl.andesstay.mq.dto.CrearBindingRequest;
 import cl.andesstay.mq.dto.OperacionResultado;
 import cl.andesstay.mq.dto.TipoDestino;
+import cl.andesstay.mq.web.RecursoNoEncontradoException;
 import cl.andesstay.mq.web.RecursoProtegidoException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,12 +44,13 @@ public class BindingService {
     /**
      * Declara el binding. Repetirlo con la misma tripleta es idempotente y no duplica la regla.
      *
-     * Se permite crear un binding DESDE un exchange protegido hacia un destino nuevo: solo agrega
-     * una copia de los mensajes y no le quita nada a la topología. No se permite HACIA un recurso
-     * protegido, porque metería mensajes ajenos en una cola o un exchange del sistema.
+     * Se rechazan los bindings protegidos (ver esProtegido). Uno desde un exchange del sistema
+     * hacia una cola que no es del sistema sí se permite: solo agrega una copia de los mensajes y
+     * no le quita nada a la topología, y se puede volver a quitar por la misma API.
      */
     public OperacionResultado crear(CrearBindingRequest peticion) {
-        rechazarDestinoProtegido(peticion.destino(), peticion.tipoDestinoOPorOmision(), "crear");
+        rechazarSiEsProtegido(peticion.exchange(), peticion.destino(),
+                peticion.tipoDestinoOPorOmision(), "crear");
 
         Binding binding = construir(
                 peticion.exchange(),
@@ -89,12 +91,13 @@ public class BindingService {
     /**
      * Elimina el binding.
      *
-     * No se puede eliminar uno que salga de un exchange protegido ni que llegue a un recurso
-     * protegido. Un binding borrado se vuelve a crear con una sola petición y no se pierde ningún
-     * mensaje ya encolado, pero los PUBLICADOS mientras no existe se descartan sin aviso: quitar
-     * cmd.direct -> q.cmd.email con email.send cortaría el flujo de correos sin borrar nada visible
-     * y sin que ningún servicio diera error. Fuera de la topología no hay restricción, y la
-     * respuesta advierte de esos descartes.
+     * Los bindings protegidos (ver esProtegido) no se eliminan: quitar cmd.direct -> q.cmd.email
+     * con email.send cortaría el flujo de correos sin borrar nada visible y sin que ningún
+     * servicio diera error. Fuera de eso no hay restricción, y la respuesta advierte que lo que se
+     * publique por esa ruta se descartará.
+     *
+     * Antes de quitarlo se comprueba que exista: queue.unbind y exchange.unbind responden bien aunque
+     * la regla no exista, así que sin la comprobación una baja equivocada respondería 204.
      */
     public OperacionResultado eliminar(String exchange, String destino,
                                        TipoDestino tipoDestino, String routingKey) {
@@ -107,16 +110,19 @@ public class BindingService {
                             + "y esos no se pueden eliminar");
         }
 
-        if (propiedades.esProtegido(exchange)) {
-            throw new RecursoProtegidoException(exchange,
-                    "eliminar un binding desde el exchange '" + exchange + "'");
-        }
-        rechazarDestinoProtegido(destino, tipoDestino, "eliminar");
-
         String rk = routingKey == null ? "" : routingKey;
-        // removeBinding no devuelve nada: cuando la tripleta no existe, el broker responde
-        // NOT_FOUND y sube como AmqpIOException, que el manejador traduce a 404.
-        amqpAdmin.removeBinding(construir(exchange, destino, tipoDestino.aTipoAmqp(), rk, null));
+        rechazarSiEsProtegido(exchange, destino, tipoDestino, "eliminar");
+
+        ManagementApiClient.BindingApi existente = gestion
+                .bindingsEntre(exchange, destino, tipoDestino == TipoDestino.QUEUE).stream()
+                .filter(b -> rk.equals(b.routingKey() == null ? "" : b.routingKey()))
+                .findFirst()
+                .orElseThrow(() -> new RecursoNoEncontradoException(RECURSO, descripcion(exchange, destino, rk)));
+
+        // Los argumentos tienen que ser los del binding existente: RabbitMQ identifica la regla
+        // también por ellos, y un unbind con otros argumentos no quita nada y responde bien.
+        amqpAdmin.removeBinding(construir(exchange, destino, tipoDestino.aTipoAmqp(), rk,
+                existente.arguments()));
 
         log.warn("[Bindings] Eliminado {} -> {} ({}) rk={}", exchange, destino, tipoDestino, rk);
         return OperacionResultado.de(RECURSO, descripcion(exchange, destino, rk), "eliminado",
@@ -124,15 +130,32 @@ public class BindingService {
     }
 
     /**
-     * La lista de protegidos no distingue colas de exchanges, así que basta el nombre; el tipo solo
-     * sirve para que el mensaje diga qué es.
+     * Un binding está protegido en dos casos:
+     *
+     *   - forma parte de la topología del sistema, la que declara ms-andesstay-notify: sale de un
+     *     exchange protegido y llega a un recurso protegido, como cmd.direct -> q.cmd.email o
+     *     cmd.dead.dlx -> q.cmd.email.dlq;
+     *   - llega a una cola protegida, venga de donde venga: crearlo metería mensajes ajenos en una
+     *     cola del sistema, y quitarlo podría cortar un flujo que alguien sí espera.
+     *
+     * Que el ORIGEN sea un exchange protegido no basta: cmd.topic -> q.demo solo agrega una copia de
+     * los mensajes, y se puede crear y eliminar libremente.
      */
-    private void rechazarDestinoProtegido(String destino, TipoDestino tipoDestino, String operacion) {
-        if (propiedades.esProtegido(destino)) {
-            String recurso = tipoDestino == TipoDestino.EXCHANGE ? "el exchange" : "la cola";
+    private void rechazarSiEsProtegido(String exchange, String destino, TipoDestino tipoDestino,
+                                       String operacion) {
+        boolean delSistema = propiedades.esProtegido(exchange) && propiedades.esProtegido(destino);
+        if (delSistema) {
             throw new RecursoProtegidoException(destino,
-                    operacion + " un binding hacia " + recurso + " '" + destino + "'");
+                    operacion + " el binding del sistema " + descripcionCorta(exchange, destino));
         }
+        if (tipoDestino == TipoDestino.QUEUE && propiedades.esProtegido(destino)) {
+            throw new RecursoProtegidoException(destino,
+                    operacion + " un binding hacia la cola '" + destino + "'");
+        }
+    }
+
+    private static String descripcionCorta(String exchange, String destino) {
+        return "'" + exchange + " -> " + destino + "'";
     }
 
     private Binding construir(String exchange, String destino,

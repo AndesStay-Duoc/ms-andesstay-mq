@@ -155,6 +155,22 @@ class BindingControllerTest {
     }
 
     @Test
+    @DisplayName("404 · quitar un binding que no existe")
+    void bajaInexistente404() throws Exception {
+        doThrow(new cl.andesstay.mq.web.RecursoNoEncontradoException(
+                "binding", "ex.demo -> q.demo (rk=demo.#)"))
+                .when(servicio).eliminar(eq("ex.demo"), anyString(), any(), anyString());
+
+        mockMvc.perform(comoAdmin(delete(RUTA)
+                        .param("exchange", "ex.demo")
+                        .param("destino", "q.demo")
+                        .param("routingKey", "demo.#")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("RECURSO_NO_ENCONTRADO"))
+                .andExpect(jsonPath("$.recurso").value("binding"));
+    }
+
+    @Test
     @DisplayName("409 · quitar un binding de la topología")
     void bajaProtegida409() throws Exception {
         doThrow(new RecursoProtegidoException("cmd.direct",

@@ -98,11 +98,27 @@ class ExchangeServiceTest {
     @Test
     @DisplayName("un exchange libre se elimina, con o sin forzar")
     void libreSeElimina() {
+        when(gestion.exchange("ex.demo")).thenReturn(Optional.of(new ManagementApiClient.ExchangeApi(
+                "ex.demo", "topic", true, false, false, Map.of())));
         when(amqpAdmin.deleteExchange("ex.demo")).thenReturn(true);
 
         servicio.eliminar("ex.demo", false);
         servicio.eliminar("ex.demo", true);
 
         verify(amqpAdmin, org.mockito.Mockito.times(2)).deleteExchange("ex.demo");
+    }
+
+    @Test
+    @DisplayName("eliminar un exchange inexistente da 404 y no llega a pedir la baja al broker")
+    void eliminarInexistenteDa404() {
+        // Con RabbitMQ 3.13, deleteExchange devolvería true aunque no exista: exchange.delete es
+        // idempotente. Por eso la existencia se comprueba antes, contra la API de gestión.
+        when(gestion.exchange("ex.no.existe")).thenReturn(Optional.empty());
+
+        RecursoNoEncontradoException e = assertThrows(RecursoNoEncontradoException.class,
+                () -> servicio.eliminar("ex.no.existe", false));
+
+        assertEquals("ex.no.existe", e.getNombre());
+        verify(amqpAdmin, never()).deleteExchange(anyString());
     }
 }
