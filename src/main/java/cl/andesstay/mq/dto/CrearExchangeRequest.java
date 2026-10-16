@@ -1,6 +1,7 @@
 package cl.andesstay.mq.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
@@ -11,6 +12,8 @@ public record CrearExchangeRequest(
 
         @NotBlank(message = "el nombre del exchange es obligatorio")
         @Size(max = 255, message = "el nombre no puede pasar de 255 caracteres")
+        @Pattern(regexp = Restricciones.CARACTERES_DE_NOMBRE,
+                message = Restricciones.MENSAJE_CARACTERES_DE_NOMBRE)
         String nombre,
 
         @NotNull(message = "el tipo es obligatorio: DIRECT, TOPIC, FANOUT o HEADERS")

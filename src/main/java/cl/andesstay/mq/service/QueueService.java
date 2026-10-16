@@ -121,15 +121,23 @@ public class QueueService {
     /**
      * Elimina la cola.
      *
-     * Es irreversible y se lleva los mensajes que tuviera dentro, de ahí el seguro sobre los
-     * nombres protegidos.
+     * Es irreversible y se lleva los mensajes que tuviera dentro, de ahí la protección de los
+     * nombres de la topología, que forzar no levanta. El parámetro se conserva para no romper a
+     * quien ya lo envía; en una cola no protegida nunca fue necesario.
      */
     public OperacionResultado eliminar(String nombre, boolean forzar) {
-        comprobarProteccion(nombre, forzar, "eliminar");
+        comprobarProteccion(nombre, "eliminar");
 
-        // deleteQueue devuelve false en lugar de lanzar cuando la cola no existe: RabbitAdmin
-        // captura el NOT_FOUND del canal. Por eso aquí el 404 sale de un booleano y no del
-        // manejador de errores.
+        // Se comprueba ANTES de borrar porque desde RabbitMQ 3.13 queue.delete es idempotente:
+        // sobre una cola inexistente el broker responde bien y deleteQueue devuelve true, así
+        // que el booleano de abajo ya no detecta el caso. getQueueInfo va por AMQP, como la
+        // baja, y no añade una dependencia de la API de gestión.
+        if (amqpAdmin.getQueueInfo(nombre) == null) {
+            throw new RecursoNoEncontradoException(RECURSO, nombre);
+        }
+
+        // Se conserva para los brokers anteriores, donde deleteQueue devuelve false en lugar de
+        // lanzar cuando la cola no existe: RabbitAdmin captura el NOT_FOUND del canal.
         if (!amqpAdmin.deleteQueue(nombre)) {
             throw new RecursoNoEncontradoException(RECURSO, nombre);
         }
@@ -142,12 +150,13 @@ public class QueueService {
     /**
      * Vacía la cola sin eliminarla.
      *
-     * También pasa por el seguro: purgar q.cmd.email descarta notificaciones pendientes, que para
-     * lo que importa es tan destructivo como borrar la cola. El caso legítimo habitual es vaciar
-     * una DLQ ya analizada, y para eso basta añadir forzar=true.
+     * También pasa por la protección: purgar q.cmd.email descarta notificaciones pendientes, que
+     * para lo que importa es tan destructivo como borrar la cola. Alcanza también a las DLQ del
+     * sistema: su contenido es la evidencia de los fallos, y DeadLetterConsumer de notify ya las
+     * mantiene vacías confirmando cada mensaje después de registrarlo.
      */
     public OperacionResultado purgar(String nombre, boolean forzar) {
-        comprobarProteccion(nombre, forzar, "purgar");
+        comprobarProteccion(nombre, "purgar");
 
         // purgeQueue(String) SÍ lanza cuando la cola no existe, al contrario que deleteQueue: el
         // NOT_FOUND del broker sube como AmqpIOException y el manejador lo traduce a 404.
@@ -157,9 +166,9 @@ public class QueueService {
         return OperacionResultado.purga(nombre, purgados);
     }
 
-    private void comprobarProteccion(String nombre, boolean forzar, String operacion) {
-        if (!forzar && propiedades.esProtegido(nombre)) {
-            throw new RecursoProtegidoException(RECURSO, nombre, operacion);
+    private void comprobarProteccion(String nombre, String operacion) {
+        if (propiedades.esProtegido(nombre)) {
+            throw new RecursoProtegidoException("la cola", nombre, operacion);
         }
     }
 

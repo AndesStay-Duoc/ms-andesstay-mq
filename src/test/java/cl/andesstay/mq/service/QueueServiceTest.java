@@ -159,42 +159,46 @@ class QueueServiceTest {
         assertThrows(IllegalStateException.class, () -> servicio.crear(peticion(COLA_LIBRE)));
     }
 
-    // ── Baja y purga, con el seguro de los protegidos ────────────────────────
+    // ── Baja y purga, con la protección de la topología ──────────────────────
 
-    @Test
-    @DisplayName("eliminar una cola de la topología de AndesStay sin forzar se rechaza")
-    void protegidaNoSeEliminaSinForzar() {
+    @ParameterizedTest(name = "forzar={0}")
+    @ValueSource(booleans = {false, true})
+    @DisplayName("una cola de la topología de AndesStay no se elimina, ni siquiera con forzar=true")
+    void protegidaNoSeElimina(boolean forzar) {
         RecursoProtegidoException e = assertThrows(RecursoProtegidoException.class,
-                () -> servicio.eliminar(COLA_PROTEGIDA, false));
+                () -> servicio.eliminar(COLA_PROTEGIDA, forzar));
 
         assertEquals(COLA_PROTEGIDA, e.getNombre());
-        assertTrue(e.getMessage().contains("forzar=true"),
-                "el mensaje tiene que decir cómo proceder: " + e.getMessage());
+        assertTrue(e.getMessage().contains("ni siquiera con ?forzar=true"),
+                "el mensaje tiene que decir que forzar no la levanta: " + e.getMessage());
         // Lo esencial: no se llegó a borrar nada. Borrar una cola en RabbitMQ es irreversible.
         verify(amqpAdmin, never()).deleteQueue(anyString());
     }
 
-    @Test
-    @DisplayName("con forzar=true la cola protegida sí se elimina")
-    void protegidaSeEliminaConForzar() {
-        servicio.eliminar(COLA_PROTEGIDA, true);
-
-        // El seguro protege del error de dedo, no de la intención: sigue siendo una API de
-        // administración completa.
-        verify(amqpAdmin).deleteQueue(COLA_PROTEGIDA);
-    }
-
-    @Test
-    @DisplayName("purgar también pasa por el seguro: descartar notificaciones pendientes es destructivo")
-    void purgarProtegidaTambienSeRechaza() {
-        assertThrows(RecursoProtegidoException.class, () -> servicio.purgar(COLA_PROTEGIDA, false));
+    @ParameterizedTest(name = "forzar={0}")
+    @ValueSource(booleans = {false, true})
+    @DisplayName("purgar también pasa por la protección: descartar notificaciones pendientes es destructivo")
+    void purgarProtegidaTambienSeRechaza(boolean forzar) {
+        assertThrows(RecursoProtegidoException.class, () -> servicio.purgar(COLA_PROTEGIDA, forzar));
 
         verify(amqpAdmin, never()).purgeQueue(anyString());
     }
 
     @Test
+    @DisplayName("forzar=true sobre una cola libre sigue funcionando como antes")
+    void forzarEnColaLibre() {
+        existe(COLA_LIBRE);
+
+        servicio.eliminar(COLA_LIBRE, true);
+
+        verify(amqpAdmin).deleteQueue(COLA_LIBRE);
+    }
+
+    @Test
     @DisplayName("una cola libre se elimina sin confirmación")
     void libreSeEliminaDirecto() {
+        existe(COLA_LIBRE);
+
         OperacionResultado resultado = servicio.eliminar(COLA_LIBRE, false);
 
         verify(amqpAdmin).deleteQueue(COLA_LIBRE);
@@ -202,21 +206,36 @@ class QueueServiceTest {
     }
 
     /**
-     * La asimetría entre las dos operaciones, que es un detalle de Spring AMQP fácil de olvidar:
-     * deleteQueue captura el NOT_FOUND del canal y devuelve false, mientras purgeQueue lo deja
-     * subir como excepción. Por eso el 404 de eliminar sale de un booleano y el de purgar del
-     * manejador de errores.
+     * Desde RabbitMQ 3.13 queue.delete es idempotente: sobre una cola inexistente el broker
+     * responde bien y deleteQueue devuelve true. Sin la comprobación previa la API respondería 204
+     * a una baja equivocada, que es lo que se vio contra el broker del compose.
      */
     @Test
-    @DisplayName("eliminar una cola inexistente da 404 a partir del booleano, no de una excepción del broker")
+    @DisplayName("eliminar una cola inexistente da 404 y no llega a pedir la baja al broker")
     void eliminarInexistenteDa404() {
-        when(amqpAdmin.deleteQueue(COLA_LIBRE)).thenReturn(false);
-
+        // Sin stub, getQueueInfo devuelve null: la cola no existe. deleteQueue respondería true,
+        // como un broker 3.13.
         RecursoNoEncontradoException e = assertThrows(RecursoNoEncontradoException.class,
                 () -> servicio.eliminar(COLA_LIBRE, false));
 
         assertEquals(COLA_LIBRE, e.getNombre());
         assertEquals("cola", e.getRecurso());
+        verify(amqpAdmin, never()).deleteQueue(anyString());
+    }
+
+    @Test
+    @DisplayName("con un broker anterior a 3.13, el false de deleteQueue sigue dando 404")
+    void eliminarConBrokerAnteriorDa404() {
+        // La cola desaparece entre la comprobación y la baja, o el broker es de los que devuelven
+        // NOT_FOUND al borrar: deleteQueue devuelve false.
+        existe(COLA_LIBRE);
+        when(amqpAdmin.deleteQueue(COLA_LIBRE)).thenReturn(false);
+
+        assertThrows(RecursoNoEncontradoException.class, () -> servicio.eliminar(COLA_LIBRE, false));
+    }
+
+    private void existe(String cola) {
+        when(amqpAdmin.getQueueInfo(cola)).thenReturn(new QueueInformation(cola, 0, 0));
     }
 
     @Test

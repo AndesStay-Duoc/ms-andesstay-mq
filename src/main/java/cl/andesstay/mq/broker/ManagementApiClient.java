@@ -7,12 +7,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Lee el inventario del broker por su API HTTP de gestión.
@@ -67,6 +69,77 @@ public class ManagementApiClient {
     public List<BindingApi> bindings() {
         return listar("/api/bindings/{vhost}", COLUMNAS_BINDINGS, new ParameterizedTypeReference<List<BindingApi>>() {
         });
+    }
+
+    /**
+     * Los bindings de un exchange hacia un destino concreto, con cualquier routing key.
+     *
+     * Sirve para saber si un binding existe antes de quitarlo: queue.unbind y exchange.unbind
+     * responden bien aunque la regla no exista, así que la baja por sí sola no lo distingue. Si
+     * el exchange o el destino no existen, la API de gestión responde 404 y aquí llega como lista
+     * vacía, que para quien pregunta significa lo mismo: no hay tal binding.
+     *
+     * @param destinoEsCola true para una cola (segmento "q" de la ruta), false para un exchange ("e")
+     */
+    public List<BindingApi> bindingsEntre(String exchange, String destino, boolean destinoEsCola) {
+        String ruta = "/api/bindings/{vhost}/e/{exchange}/" + (destinoEsCola ? "q" : "e") + "/{destino}";
+        try {
+            List<BindingApi> resultado = cliente.get()
+                    .uri(builder -> builder.path(ruta)
+                            .queryParam("columns", COLUMNAS_BINDINGS).build(vhost, exchange, destino))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<List<BindingApi>>() {
+                    });
+            return resultado == null ? List.of() : resultado;
+
+        } catch (HttpClientErrorException.NotFound e) {
+            return List.of();
+
+        } catch (ResourceAccessException e) {
+            log.error("[Gestión] No se alcanzó la API de gestión en {}: {}", ruta, e.getMessage());
+            throw new ApiDeGestionException(
+                    "no se pudo contactar la API de gestión del broker", false, e);
+
+        } catch (RestClientResponseException e) {
+            log.error("[Gestión] La API de gestión respondió {} en {}: {}",
+                    e.getStatusCode(), ruta, e.getResponseBodyAsString());
+            throw new ApiDeGestionException(
+                    "la API de gestión respondió " + e.getStatusCode(), true, e);
+        }
+    }
+
+    /**
+     * Un solo exchange, o vacío si no existe.
+     *
+     * Un 404 aquí es una respuesta normal —el exchange no existe— y no un fallo de la API, así que
+     * se devuelve vacío en lugar de lanzar. La API de gestión responde lo mismo cuando el que no
+     * existe es el vhost; ese caso ya lo delata el listado, que sí lo trata como error.
+     *
+     * El nombre viaja como variable de plantilla por la misma razón que el vhost: así se codifica.
+     */
+    public Optional<ExchangeApi> exchange(String nombre) {
+        String ruta = "/api/exchanges/{vhost}/{nombre}";
+        try {
+            return Optional.ofNullable(cliente.get()
+                    .uri(builder -> builder.path(ruta)
+                            .queryParam("columns", COLUMNAS_EXCHANGES).build(vhost, nombre))
+                    .retrieve()
+                    .body(ExchangeApi.class));
+
+        } catch (HttpClientErrorException.NotFound e) {
+            return Optional.empty();
+
+        } catch (ResourceAccessException e) {
+            log.error("[Gestión] No se alcanzó la API de gestión en {}: {}", ruta, e.getMessage());
+            throw new ApiDeGestionException(
+                    "no se pudo contactar la API de gestión del broker", false, e);
+
+        } catch (RestClientResponseException e) {
+            log.error("[Gestión] La API de gestión respondió {} en {}: {}",
+                    e.getStatusCode(), ruta, e.getResponseBodyAsString());
+            throw new ApiDeGestionException(
+                    "la API de gestión respondió " + e.getStatusCode(), true, e);
+        }
     }
 
     /**

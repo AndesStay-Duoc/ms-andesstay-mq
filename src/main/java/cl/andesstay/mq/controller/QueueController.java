@@ -69,9 +69,9 @@ public class QueueController {
     /**
      * 204 · Elimina la cola, con los mensajes que contenga.
      *
-     * forzar es obligatorio para los nombres de la topología de AndesStay. Sin él, la respuesta es
-     * un 409 que explica qué añadir: borrar q.cmd.email deja a ms-andesstay-notify sin su cola de
-     * trabajo, y en RabbitMQ es irreversible.
+     * Los nombres de la topología de AndesStay responden 409 con o sin forzar: borrar q.cmd.email
+     * deja a ms-andesstay-notify sin su cola de trabajo, y en RabbitMQ es irreversible. forzar se
+     * sigue aceptando para no romper a quien ya lo envía.
      */
     @DeleteMapping("/{nombre}")
     public ResponseEntity<Void> eliminar(

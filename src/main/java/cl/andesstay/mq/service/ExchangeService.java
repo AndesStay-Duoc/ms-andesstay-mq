@@ -75,17 +75,40 @@ public class ExchangeService {
     }
 
     /**
+     * Describe un solo exchange.
+     *
+     * Va por la API de gestión, igual que el listado: AMQP no tiene una operación para leer un
+     * exchange. La declaración pasiva solo dice si existe, no su tipo ni sus argumentos, que es
+     * justamente lo que se viene a consultar.
+     */
+    public ExchangeResumen describir(String nombre) {
+        return gestion.exchange(nombre)
+                .map(this::aResumen)
+                .orElseThrow(() -> new RecursoNoEncontradoException(RECURSO, nombre));
+    }
+
+    /**
      * Elimina el exchange.
      *
      * Borrar un exchange no borra las colas que tuviera enlazadas, pero sí sus bindings: los
-     * mensajes que se publicaran contra él dejan de llegar a ninguna parte. De ahí el seguro.
+     * mensajes que se publicaran contra él dejan de llegar a ninguna parte. De ahí la protección de
+     * los nombres de la topología, que forzar no levanta; el parámetro se conserva para no romper
+     * a quien ya lo envía.
      */
     public OperacionResultado eliminar(String nombre, boolean forzar) {
-        if (!forzar && propiedades.esProtegido(nombre)) {
-            throw new RecursoProtegidoException(RECURSO, nombre, "eliminar");
+        if (propiedades.esProtegido(nombre)) {
+            throw new RecursoProtegidoException("el exchange", nombre, "eliminar");
         }
 
-        // Igual que deleteQueue: devuelve false en lugar de lanzar cuando no existe.
+        // Se comprueba ANTES de borrar porque desde RabbitMQ 3.13 exchange.delete es idempotente:
+        // sobre un exchange inexistente deleteExchange devuelve true. AMQP no tiene forma de
+        // consultar un exchange sin declararlo, así que la comprobación va por la API de gestión;
+        // si el 15672 no responde, la baja sale como 503 en lugar de responder sin saber.
+        if (gestion.exchange(nombre).isEmpty()) {
+            throw new RecursoNoEncontradoException(RECURSO, nombre);
+        }
+
+        // Para los brokers anteriores, donde deleteExchange devuelve false si no existe.
         if (!amqpAdmin.deleteExchange(nombre)) {
             throw new RecursoNoEncontradoException(RECURSO, nombre);
         }

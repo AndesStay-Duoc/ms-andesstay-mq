@@ -13,6 +13,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -50,11 +51,11 @@ public class ManejadorDeErrores {
                 Map.of("recurso", e.getRecurso(), "nombre", e.getNombre()));
     }
 
-    /** 409 · Es un recurso de la topología de AndesStay y no se confirmó con ?forzar=true. */
+    /** 409 · Es un recurso de la topología de AndesStay. forzar=true no cambia la respuesta. */
     @ExceptionHandler(RecursoProtegidoException.class)
     public ResponseEntity<Map<String, Object>> protegido(RecursoProtegidoException e) {
-        log.warn("[Protección] Se rechazó una operación destructiva sobre {} sin forzar=true",
-                e.getNombre());
+        log.warn("[Protección] Se rechazó una operación sobre el recurso protegido {}: {}",
+                e.getNombre(), e.getMessage());
         return cuerpo(HttpStatus.CONFLICT, "RECURSO_PROTEGIDO", e.getMessage(),
                 Map.of("nombre", e.getNombre()));
     }
@@ -72,6 +73,24 @@ public class ManejadorDeErrores {
         e.getBindingResult().getFieldErrors()
                 .forEach(f -> campos.put(f.getField(), f.getDefaultMessage()));
         return cuerpo(HttpStatus.BAD_REQUEST, "VALIDACION", "el cuerpo no es válido",
+                Map.of("campos", campos));
+    }
+
+    /**
+     * 400 · Falló la validación de un parámetro de la URL, como los de la baja de un binding.
+     *
+     * Es el equivalente de validacion() para @RequestParam: Spring 6.1 valida esas anotaciones por
+     * su cuenta y lanza esta excepción en lugar de MethodArgumentNotValidException. Se responde con
+     * el mismo código y la misma forma, para que quien llama no tenga que distinguir dónde iba el
+     * valor.
+     */
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<Map<String, Object>> validacionDeParametros(HandlerMethodValidationException e) {
+        Map<String, Object> campos = new LinkedHashMap<>();
+        e.getAllValidationResults().forEach(r -> campos.put(
+                r.getMethodParameter().getParameterName(),
+                r.getResolvableErrors().get(0).getDefaultMessage()));
+        return cuerpo(HttpStatus.BAD_REQUEST, "VALIDACION", "los parámetros no son válidos",
                 Map.of("campos", campos));
     }
 

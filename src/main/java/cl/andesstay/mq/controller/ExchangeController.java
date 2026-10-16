@@ -44,10 +44,21 @@ public class ExchangeController {
     }
 
     /**
+     * 200 · Describe un solo exchange: tipo, durabilidad, argumentos y si está protegido.
+     *
+     * Necesita la API de gestión, como el listado: AMQP no tiene operación para leer un exchange.
+     */
+    @GetMapping("/{nombre}")
+    public ExchangeResumen describir(@PathVariable String nombre) {
+        return servicio.describir(nombre);
+    }
+
+    /**
      * 204 · Elimina el exchange y sus bindings. Las colas enlazadas siguen existiendo.
      *
-     * forzar es obligatorio para los nombres de la topología de AndesStay: sin cmd.direct, las
-     * publicaciones de ms-andesstay-reservations dejan de llegar a ninguna cola.
+     * Los nombres de la topología de AndesStay responden 409 con o sin forzar: sin cmd.direct, las
+     * publicaciones de ms-andesstay-reservations dejan de llegar a ninguna cola. forzar se sigue
+     * aceptando para no romper a quien ya lo envía.
      */
     @DeleteMapping("/{nombre}")
     public ResponseEntity<Void> eliminar(
