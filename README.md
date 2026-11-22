@@ -65,15 +65,17 @@ Las nueve colas y los tres exchanges del caso están en una lista de **protegido
 | Crear o eliminar un binding **hacia una cola protegida**, venga del exchange que venga | `409 RECURSO_PROTEGIDO` |
 | Crear o eliminar un binding **desde** un exchange protegido hacia una cola que no es del sistema | Permitido: solo agrega una copia de los mensajes |
 
-**`?forzar=true` no levanta la protección.** Cambiar la topología del sistema exige cambiar la lista
-y volver a desplegar, de modo que no pueda ocurrir por un parámetro de más en una petición. Borrar
+**Ningún parámetro de la API levanta la protección.** Cambiar la topología del sistema exige cambiar
+la lista y volver a desplegar, de modo que no pueda ocurrir por un parámetro de más en una petición. Borrar
 `q.cmd.email` deja a `ms-andesstay-notify` sin su cola de trabajo y tira las notificaciones del
 sistema entero, y en RabbitMQ borrar una cola es **irreversible**: se van los mensajes que tuviera
 dentro. Quitar `cmd.direct -> q.cmd.email` corta el flujo de correos sin borrar nada visible y sin
 que ningún servicio dé error.
 
-El parámetro `forzar` se sigue aceptando en `DELETE` y en la purga, para no romper a quien ya lo
-envía. Sobre un recurso no protegido nunca fue necesario.
+**Ya no existe el parámetro `?forzar=true`.** Se aceptaba en los `DELETE` y en la purga, pero no
+levantaba la protección ni cambiaba nada más que una palabra del log: un parámetro que parece un
+interruptor y no lo es invita a probarlo. Quien todavía lo envíe recibe la misma respuesta que sin
+él, porque los parámetros de consulta desconocidos se ignoran.
 
 Dos consecuencias conviene tenerlas presentes:
 
@@ -87,7 +89,7 @@ Dos consecuencias conviene tenerlas presentes:
 El aviso de `409` dice dónde se decide la protección:
 
 ```json
-{"error":"RECURSO_PROTEGIDO","detalle":"No se permite eliminar la cola 'q.cmd.email': forma parte de la topología de AndesStay (andesstay.mq.protegidos) y esta API no la modifica, ni siquiera con ?forzar=true","nombre":"q.cmd.email"}
+{"error":"RECURSO_PROTEGIDO","detalle":"No se permite eliminar la cola 'q.cmd.email': forma parte de la topología de AndesStay (andesstay.mq.protegidos). Esta API no la modifica; cambiarla exige editar esa lista y volver a desplegar","nombre":"q.cmd.email"}
 ```
 
 ## Validación de formato
@@ -191,8 +193,8 @@ Java 17 · Spring Boot 3.2.5 · Spring AMQP · Spring Security (OAuth2 Resource 
 Se configuran en un archivo `.env` que **no se versiona**. Ver `.env.example`.
 
 La lista de protegidos **no es una variable de entorno** a propósito: desactivarla por
-configuración sería perder justo lo que aporta. Tampoco la levanta `?forzar=true`: ver
-*La protección de la topología de AndesStay*.
+configuración sería perder justo lo que aporta. Tampoco la levanta ningún parámetro de la API:
+ver *La protección de la topología de AndesStay*.
 
 ## Cómo levantarlo
 
@@ -214,8 +216,8 @@ docker compose --env-file .env -f infra/mq/compose.yml up -d rabbitmq1 rabbitmq2
 ```
 
 Cubren, sin broker ni tokens reales: la matriz de códigos HTTP del recurso de colas, la validación
-de formato del cuerpo y de los parámetros, la protección de la topología (también con
-`forzar=true`), la consulta de un exchange contra la API de gestión, la traducción de los códigos de
+de formato del cuerpo y de los parámetros, la protección de la topología (también si se envía un
+`?forzar=true` heredado), la consulta de un exchange contra la API de gestión, la traducción de los códigos de
 cierre de canal de AMQP y las trampas del recurso de bindings.
 
 ## Contratos

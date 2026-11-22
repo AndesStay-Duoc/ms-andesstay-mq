@@ -92,10 +92,9 @@ public class ExchangeService {
      *
      * Borrar un exchange no borra las colas que tuviera enlazadas, pero sí sus bindings: los
      * mensajes que se publicaran contra él dejan de llegar a ninguna parte. De ahí la protección de
-     * los nombres de la topología, que forzar no levanta; el parámetro se conserva para no romper
-     * a quien ya lo envía.
+     * los nombres de la topología, que no se levanta desde la API.
      */
-    public OperacionResultado eliminar(String nombre, boolean forzar) {
+    public OperacionResultado eliminar(String nombre) {
         if (propiedades.esProtegido(nombre)) {
             throw new RecursoProtegidoException("el exchange", nombre, "eliminar");
         }
@@ -113,7 +112,7 @@ public class ExchangeService {
             throw new RecursoNoEncontradoException(RECURSO, nombre);
         }
 
-        log.warn("[Exchanges] Eliminado {}{}", nombre, forzar ? " (forzado)" : "");
+        log.warn("[Exchanges] Eliminado {}", nombre);
         return OperacionResultado.de(RECURSO, nombre, "eliminado",
                 "se eliminaron también sus bindings; las colas enlazadas siguen existiendo");
     }

@@ -9,8 +9,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.amqp.core.AmqpAdmin;
@@ -84,28 +82,26 @@ class ExchangeServiceTest {
         assertEquals("ex.no.existe", e.getNombre());
     }
 
-    @ParameterizedTest(name = "forzar={0}")
-    @ValueSource(booleans = {false, true})
-    @DisplayName("un exchange de la topología no se elimina, ni siquiera con forzar=true")
-    void protegidoNoSeElimina(boolean forzar) {
+    @Test
+    @DisplayName("un exchange de la topología no se elimina desde la API")
+    void protegidoNoSeElimina() {
         RecursoProtegidoException e = assertThrows(RecursoProtegidoException.class,
-                () -> servicio.eliminar("cmd.direct", forzar));
+                () -> servicio.eliminar("cmd.direct"));
 
         assertEquals("cmd.direct", e.getNombre());
         verify(amqpAdmin, never()).deleteExchange(anyString());
     }
 
     @Test
-    @DisplayName("un exchange libre se elimina, con o sin forzar")
+    @DisplayName("un exchange libre se elimina")
     void libreSeElimina() {
         when(gestion.exchange("ex.demo")).thenReturn(Optional.of(new ManagementApiClient.ExchangeApi(
                 "ex.demo", "topic", true, false, false, Map.of())));
         when(amqpAdmin.deleteExchange("ex.demo")).thenReturn(true);
 
-        servicio.eliminar("ex.demo", false);
-        servicio.eliminar("ex.demo", true);
+        servicio.eliminar("ex.demo");
 
-        verify(amqpAdmin, org.mockito.Mockito.times(2)).deleteExchange("ex.demo");
+        verify(amqpAdmin).deleteExchange("ex.demo");
     }
 
     @Test
@@ -116,7 +112,7 @@ class ExchangeServiceTest {
         when(gestion.exchange("ex.no.existe")).thenReturn(Optional.empty());
 
         RecursoNoEncontradoException e = assertThrows(RecursoNoEncontradoException.class,
-                () -> servicio.eliminar("ex.no.existe", false));
+                () -> servicio.eliminar("ex.no.existe"));
 
         assertEquals("ex.no.existe", e.getNombre());
         verify(amqpAdmin, never()).deleteExchange(anyString());

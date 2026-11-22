@@ -112,7 +112,7 @@ class ExchangeControllerTest {
     @Test
     @DisplayName("404 · eliminar un exchange que no existe")
     void eliminarInexistente404() throws Exception {
-        when(servicio.eliminar(eq("ex.no.existe"), eq(false)))
+        when(servicio.eliminar(eq("ex.no.existe")))
                 .thenThrow(new RecursoNoEncontradoException("exchange", "ex.no.existe"));
 
         mockMvc.perform(comoAdmin(delete(RUTA + "/ex.no.existe")))
@@ -123,9 +123,9 @@ class ExchangeControllerTest {
     // ── 409 · protegidos ─────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("409 · eliminar un exchange de la topología, también con forzar=true")
+    @DisplayName("409 · eliminar un exchange de la topología; un ?forzar=true heredado se ignora")
     void protegidoEs409ConForzar() throws Exception {
-        when(servicio.eliminar(eq("cmd.direct"), eq(true)))
+        when(servicio.eliminar(eq("cmd.direct")))
                 .thenThrow(new RecursoProtegidoException("el exchange", "cmd.direct", "eliminar"));
 
         mockMvc.perform(comoAdmin(delete(RUTA + "/cmd.direct").param("forzar", "true")))

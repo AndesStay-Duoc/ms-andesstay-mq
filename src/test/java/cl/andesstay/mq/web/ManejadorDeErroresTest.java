@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -213,7 +214,7 @@ class ManejadorDeErroresTest {
         // Un 409 que no dice de dónde sale obliga a leer el código fuente.
         String detalle = String.valueOf(cuerpo(respuesta).get("detalle"));
         assertTrue(detalle.contains("andesstay.mq.protegidos"), detalle);
-        assertTrue(detalle.contains("ni siquiera con ?forzar=true"), detalle);
+        assertFalse(detalle.contains("forzar"), "no debe sugerir un parámetro que no existe: " + detalle);
     }
 
     @SuppressWarnings("unchecked")

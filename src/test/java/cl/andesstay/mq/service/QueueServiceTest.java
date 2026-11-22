@@ -161,37 +161,28 @@ class QueueServiceTest {
 
     // ── Baja y purga, con la protección de la topología ──────────────────────
 
-    @ParameterizedTest(name = "forzar={0}")
-    @ValueSource(booleans = {false, true})
-    @DisplayName("una cola de la topología de AndesStay no se elimina, ni siquiera con forzar=true")
-    void protegidaNoSeElimina(boolean forzar) {
+    @Test
+    @DisplayName("una cola de la topología de AndesStay no se elimina desde la API")
+    void protegidaNoSeElimina() {
         RecursoProtegidoException e = assertThrows(RecursoProtegidoException.class,
-                () -> servicio.eliminar(COLA_PROTEGIDA, forzar));
+                () -> servicio.eliminar(COLA_PROTEGIDA));
 
         assertEquals(COLA_PROTEGIDA, e.getNombre());
-        assertTrue(e.getMessage().contains("ni siquiera con ?forzar=true"),
-                "el mensaje tiene que decir que forzar no la levanta: " + e.getMessage());
+        // El parámetro forzar ya no existe: un mensaje que lo nombre invita a probarlo.
+        assertFalse(e.getMessage().contains("forzar"),
+                "el mensaje no debe sugerir un parámetro que no existe: " + e.getMessage());
+        assertTrue(e.getMessage().contains("volver a desplegar"),
+                "el mensaje tiene que decir cómo se cambia la protección: " + e.getMessage());
         // Lo esencial: no se llegó a borrar nada. Borrar una cola en RabbitMQ es irreversible.
         verify(amqpAdmin, never()).deleteQueue(anyString());
     }
 
-    @ParameterizedTest(name = "forzar={0}")
-    @ValueSource(booleans = {false, true})
+    @Test
     @DisplayName("purgar también pasa por la protección: descartar notificaciones pendientes es destructivo")
-    void purgarProtegidaTambienSeRechaza(boolean forzar) {
-        assertThrows(RecursoProtegidoException.class, () -> servicio.purgar(COLA_PROTEGIDA, forzar));
+    void purgarProtegidaTambienSeRechaza() {
+        assertThrows(RecursoProtegidoException.class, () -> servicio.purgar(COLA_PROTEGIDA));
 
         verify(amqpAdmin, never()).purgeQueue(anyString());
-    }
-
-    @Test
-    @DisplayName("forzar=true sobre una cola libre sigue funcionando como antes")
-    void forzarEnColaLibre() {
-        existe(COLA_LIBRE);
-
-        servicio.eliminar(COLA_LIBRE, true);
-
-        verify(amqpAdmin).deleteQueue(COLA_LIBRE);
     }
 
     @Test
@@ -199,7 +190,7 @@ class QueueServiceTest {
     void libreSeEliminaDirecto() {
         existe(COLA_LIBRE);
 
-        OperacionResultado resultado = servicio.eliminar(COLA_LIBRE, false);
+        OperacionResultado resultado = servicio.eliminar(COLA_LIBRE);
 
         verify(amqpAdmin).deleteQueue(COLA_LIBRE);
         assertEquals("eliminada", resultado.operacion());
@@ -216,7 +207,7 @@ class QueueServiceTest {
         // Sin stub, getQueueInfo devuelve null: la cola no existe. deleteQueue respondería true,
         // como un broker 3.13.
         RecursoNoEncontradoException e = assertThrows(RecursoNoEncontradoException.class,
-                () -> servicio.eliminar(COLA_LIBRE, false));
+                () -> servicio.eliminar(COLA_LIBRE));
 
         assertEquals(COLA_LIBRE, e.getNombre());
         assertEquals("cola", e.getRecurso());
@@ -231,7 +222,7 @@ class QueueServiceTest {
         existe(COLA_LIBRE);
         when(amqpAdmin.deleteQueue(COLA_LIBRE)).thenReturn(false);
 
-        assertThrows(RecursoNoEncontradoException.class, () -> servicio.eliminar(COLA_LIBRE, false));
+        assertThrows(RecursoNoEncontradoException.class, () -> servicio.eliminar(COLA_LIBRE));
     }
 
     private void existe(String cola) {
@@ -243,7 +234,7 @@ class QueueServiceTest {
     void purgarDevuelveElConteo() {
         when(amqpAdmin.purgeQueue(COLA_LIBRE)).thenReturn(17);
 
-        OperacionResultado resultado = servicio.purgar(COLA_LIBRE, false);
+        OperacionResultado resultado = servicio.purgar(COLA_LIBRE);
 
         // El conteo es el motivo de responder 200 con cuerpo en lugar de un 204 vacío.
         assertEquals(17, resultado.mensajesPurgados());

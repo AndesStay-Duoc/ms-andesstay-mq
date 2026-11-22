@@ -61,7 +61,7 @@ andesstay:
     # ms-andesstay-notify sin su cola de trabajo y tira las notificaciones del sistema entero, y en
     # RabbitMQ borrar una cola es irreversible: se van los mensajes que tuviera dentro.
     #
-    # ?forzar=true no levanta la protección: cambiar la topología del sistema exige cambiar esta
+    # Ningún parámetro de la API levanta la protección: cambiar la topología del sistema exige cambiar esta
     # lista y volver a desplegar. Por lo mismo no se expone como variable de entorno: desactivarla
     # por configuración del despliegue sería justo perder lo que aporta.
     #

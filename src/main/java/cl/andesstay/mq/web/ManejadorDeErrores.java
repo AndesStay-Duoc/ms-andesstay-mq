@@ -51,7 +51,7 @@ public class ManejadorDeErrores {
                 Map.of("recurso", e.getRecurso(), "nombre", e.getNombre()));
     }
 
-    /** 409 · Es un recurso de la topología de AndesStay. forzar=true no cambia la respuesta. */
+    /** 409 · Es un recurso de la topología de AndesStay. Ningún parámetro de la petición la levanta. */
     @ExceptionHandler(RecursoProtegidoException.class)
     public ResponseEntity<Map<String, Object>> protegido(RecursoProtegidoException e) {
         log.warn("[Protección] Se rechazó una operación sobre el recurso protegido {}: {}",
