@@ -102,7 +102,7 @@ class QueueServiceTest {
     }
 
     @Test
-    @DisplayName("los argumentos llegan al broker tal cual, sin filtrar")
+    @DisplayName("los argumentos válidos llegan al broker tal cual, sin filtrar")
     void argumentosSinFiltrar() {
         Map<String, Object> argumentos = Map.of(
                 "x-message-ttl", 300000,
@@ -112,9 +112,74 @@ class QueueServiceTest {
 
         ArgumentCaptor<Queue> declarada = ArgumentCaptor.forClass(Queue.class);
         verify(amqpAdmin).declareQueue(declarada.capture());
-        // Replicar aquí la tabla de argumentos de RabbitMQ sería una copia condenada a quedarse
-        // atrás: valida el broker, y lo que esta API garantiza es no estorbar.
+        // Se validan antes (ver ArgumentosAmqp), pero lo que pasa la validación no se toca: el
+        // broker recibe exactamente el mapa que llegó.
         assertEquals(argumentos, declarada.getValue().getArguments());
+    }
+
+    @Nested
+    @DisplayName("los argumentos se validan antes de llegar al broker")
+    class ArgumentosDeCola {
+
+        // Antes estos casos llegaban a RabbitMQ: los de tipo o rango volvían como 409
+        // TOPOLOGIA_INCOMPATIBLE, que confunde, y los desconocidos se aceptaban en silencio.
+
+        @Test
+        @DisplayName("un TTL como texto se rechaza con un mensaje que nombra el argumento")
+        void ttlComoTexto() {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                    () -> servicio.crear(new CrearColaRequest(COLA_LIBRE, true, false, false,
+                            Map.of("x-message-ttl", "60000"))));
+
+            assertTrue(e.getMessage().contains("x-message-ttl"), e.getMessage());
+            verify(amqpAdmin, never()).declareQueue(any());
+        }
+
+        @Test
+        @DisplayName("un valor fuera de rango se rechaza")
+        void fueraDeRango() {
+            assertThrows(IllegalArgumentException.class,
+                    () -> servicio.crear(new CrearColaRequest(COLA_LIBRE, true, false, false,
+                            Map.of("x-max-length", -1))));
+            verify(amqpAdmin, never()).declareQueue(any());
+        }
+
+        @Test
+        @DisplayName("un argumento desconocido se rechaza: el broker lo aceptaría sin aplicarlo")
+        void desconocido() {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                    () -> servicio.crear(new CrearColaRequest(COLA_LIBRE, true, false, false,
+                            Map.of("x-mesage-ttl", 60000))));
+
+            assertTrue(e.getMessage().contains("x-mesage-ttl"), e.getMessage());
+            assertTrue(e.getMessage().contains("x-message-ttl"),
+                    "el mensaje lista los argumentos admitidos: " + e.getMessage());
+            verify(amqpAdmin, never()).declareQueue(any());
+        }
+
+        @Test
+        @DisplayName("una cola quorum no durable se rechaza")
+        void quorumNoDurable() {
+            assertThrows(IllegalArgumentException.class,
+                    () -> servicio.crear(new CrearColaRequest(COLA_LIBRE, false, false, false,
+                            Map.of("x-queue-type", "quorum"))));
+            verify(amqpAdmin, never()).declareQueue(any());
+        }
+
+        @Test
+        @DisplayName("una combinación válida y completa sí se declara")
+        void combinacionValida() {
+            servicio.crear(new CrearColaRequest(COLA_LIBRE, true, false, false, Map.of(
+                    "x-queue-type", "quorum",
+                    "x-message-ttl", 60000,
+                    "x-max-length", 1000,
+                    "x-overflow", "reject-publish",
+                    "x-dead-letter-exchange", "cmd.dead.dlx",
+                    "x-dead-letter-routing-key", "demo.dead",
+                    "x-delivery-limit", 5)));
+
+            verify(amqpAdmin).declareQueue(any());
+        }
     }
 
     @Nested

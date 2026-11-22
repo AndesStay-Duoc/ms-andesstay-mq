@@ -167,6 +167,32 @@ class QueueControllerTest {
     }
 
     @Test
+    @DisplayName("400 · exclusiva=true no se admite: la cola moriría con la conexión de esta API")
+    void exclusivaEs400() throws Exception {
+        mockMvc.perform(comoAdmin(post(RUTA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nombre\":\"q.pruebas.demo\",\"exclusiva\":true}")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("VALIDACION"))
+                .andExpect(jsonPath("$.campos.exclusiva").value(
+                        org.hamcrest.Matchers.containsString("conexión")));
+
+        verify(servicio, never()).crear(any());
+    }
+
+    @Test
+    @DisplayName("201 · exclusiva=false explícito se sigue aceptando")
+    void exclusivaFalseEs201() throws Exception {
+        when(servicio.crear(any())).thenReturn(
+                OperacionResultado.de("cola", "q.pruebas.demo", "declarada", "declarada"));
+
+        mockMvc.perform(comoAdmin(post(RUTA)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nombre\":\"q.pruebas.demo\",\"exclusiva\":false}")))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
     @DisplayName("400 · un nombre con espacios, barras o tildes no llega al servicio")
     void nombreConCaracteresInvalidosEs400() throws Exception {
         mockMvc.perform(comoAdmin(post(RUTA)

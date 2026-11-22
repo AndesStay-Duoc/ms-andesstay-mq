@@ -2,7 +2,9 @@ package cl.andesstay.mq.service;
 
 import cl.andesstay.mq.broker.ManagementApiClient;
 import cl.andesstay.mq.config.RabbitMQProperties;
+import cl.andesstay.mq.dto.CrearExchangeRequest;
 import cl.andesstay.mq.dto.ExchangeResumen;
+import cl.andesstay.mq.dto.TipoExchange;
 import cl.andesstay.mq.web.RecursoNoEncontradoException;
 import cl.andesstay.mq.web.RecursoProtegidoException;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -46,6 +49,27 @@ class ExchangeServiceTest {
                 new RabbitMQProperties.Management("http://localhost:15672", "admin", "secreto"),
                 List.of("cmd.direct", "cmd.dead.dlx"));
         servicio = new ExchangeService(amqpAdmin, gestion, propiedades);
+    }
+
+    @Test
+    @DisplayName("un argumento de exchange desconocido se rechaza antes de llegar al broker")
+    void argumentoDesconocido() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> servicio.crear(new CrearExchangeRequest("ex.demo", TipoExchange.DIRECT,
+                        true, false, Map.of("x-message-ttl", 1000))));
+
+        assertTrue(e.getMessage().contains("alternate-exchange"),
+                "el mensaje lista los argumentos admitidos: " + e.getMessage());
+        verify(amqpAdmin, never()).declareExchange(any());
+    }
+
+    @Test
+    @DisplayName("alternate-exchange como texto sí se declara")
+    void alternateExchangeValido() {
+        servicio.crear(new CrearExchangeRequest("ex.demo", TipoExchange.DIRECT,
+                true, false, Map.of("alternate-exchange", "ex.demo.sin-ruta")));
+
+        verify(amqpAdmin).declareExchange(any());
     }
 
     @Test

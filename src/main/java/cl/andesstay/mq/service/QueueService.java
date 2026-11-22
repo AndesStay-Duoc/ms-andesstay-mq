@@ -59,6 +59,9 @@ public class QueueService {
      */
     public OperacionResultado crear(CrearColaRequest peticion) {
         NombresAmqp.validar(RECURSO, peticion.nombre());
+        // Antes de llegar al broker: un argumento mal escrito sale como 400 con su nombre, y no
+        // como un 409 que parece un conflicto o un 201 que lo ignoró. Ver ArgumentosAmqp.
+        ArgumentosAmqp.validarCola(peticion.argumentos(), peticion.durableOPorOmision());
 
         Queue cola = new Queue(
                 peticion.nombre(),

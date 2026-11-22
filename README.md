@@ -115,6 +115,29 @@ Todos los errores de formato responden igual, con el campo que falla:
 Los nombres `amq.*` pasan el formato a propósito: no son inválidos sino reservados, y los rechaza
 `NombresAmqp` con `400 PETICION_INVALIDA` y un mensaje que explica el motivo.
 
+### Argumentos
+
+El mapa `argumentos` se valida contra una **lista cerrada**, con tipo y rango, antes de llegar al
+broker (`service/ArgumentosAmqp.java`). Un fallo responde `400 PETICION_INVALIDA` con el nombre
+del argumento y lo que se esperaba.
+
+| Recurso | Argumentos admitidos |
+|---|---|
+| Cola | `x-message-ttl`, `x-expires`, `x-max-length`, `x-max-length-bytes` (enteros ≥ 0; `x-expires` ≥ 1), `x-overflow` (`drop-head`, `reject-publish`, `reject-publish-dlx`), `x-dead-letter-exchange`, `x-dead-letter-routing-key`, `x-dead-letter-strategy` (`at-most-once`, `at-least-once`), `x-queue-type` (`classic`, `quorum`, `stream`; las dos últimas solo durables), `x-max-priority` (1 a 255), `x-single-active-consumer` (booleano), `x-delivery-limit`, `x-queue-mode` (`default`, `lazy`) |
+| Exchange | `alternate-exchange` |
+| Binding | Solo se valida `x-match` (`all`, `any`, `all-with-x`, `any-with-x`): el resto son los nombres de cabecera de un exchange `headers` y pueden ser cualquiera |
+
+Por qué una lista cerrada: RabbitMQ **acepta en silencio un argumento que no conoce** y no hace nada
+con él, así que `"x-mesage-ttl"` creaba una cola sin TTL y la API respondía 201. Y un argumento con
+el tipo equivocado (`"x-message-ttl": "60000"`) lo rechazaba el broker con `PRECONDITION_FAILED`, que
+llegaba como `409 TOPOLOGIA_INCOMPATIBLE`, como si chocara con algo existente.
+
+### Colas exclusivas
+
+`"exclusiva": true` responde `400 VALIDACION`. Una cola exclusiva pertenece a la conexión AMQP que
+la declara, que aquí es la de esta API: ningún otro servicio podría consumirla (`RESOURCE_LOCKED`) y
+el broker la borraría, con sus mensajes, al reiniciarse la API.
+
 ## Códigos de error
 
 Todas las respuestas de error tienen la forma `{"error": "<CÓDIGO>", "detalle": "<texto>", …}`,
@@ -122,9 +145,9 @@ con campos adicionales según el caso.
 
 | HTTP | `error` | Cuándo |
 |---|---|---|
-| `400` | `VALIDACION` | Un campo del cuerpo o un parámetro no cumple el formato. Trae `campos` |
+| `400` | `VALIDACION` | Un campo del cuerpo o un parámetro no cumple el formato, o `exclusiva: true`. Trae `campos` |
 | `400` | `CUERPO_ILEGIBLE` | JSON mal formado, o un `tipo` de exchange que no es `DIRECT`, `TOPIC`, `FANOUT` ni `HEADERS` |
-| `400` | `PETICION_INVALIDA` | Nombre reservado `amq.*`, o desenlazar del exchange por omisión |
+| `400` | `PETICION_INVALIDA` | Nombre reservado `amq.*`, desenlazar del exchange por omisión, o un argumento desconocido, de otro tipo o fuera de rango |
 | `401` | — | Sin token, o token inválido o vencido. Sin cuerpo |
 | `403` | `ROL_INSUFICIENTE` | Token válido sin el rol `Admin` |
 | `404` | `RECURSO_NO_ENCONTRADO` | El recurso no existe. Trae `recurso` y `nombre`, o `detalleDelBroker` |

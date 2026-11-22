@@ -69,6 +69,26 @@ class BindingServiceTest {
     }
 
     @Test
+    @DisplayName("un x-match desconocido se rechaza antes de llegar al broker")
+    void xMatchInvalido() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> servicio.crear(new CrearBindingRequest(
+                        "ex.demo", "q.demo.email", "QUEUE", "", Map.of("x-match", "algunos"))));
+
+        assertTrue(e.getMessage().contains("x-match"), e.getMessage());
+        verify(amqpAdmin, never()).declareBinding(any());
+    }
+
+    @Test
+    @DisplayName("las cabeceras de un binding headers pasan: son nombres libres, no argumentos de RabbitMQ")
+    void cabecerasLibres() {
+        servicio.crear(new CrearBindingRequest(
+                "ex.demo", "q.demo.email", "QUEUE", "", Map.of("x-match", "all", "tipo", "email")));
+
+        verify(amqpAdmin).declareBinding(any());
+    }
+
+    @Test
     @DisplayName("el origen y el destino no se intercambian al construir el Binding")
     void origenYDestinoEnSuSitio() {
         servicio.crear(new CrearBindingRequest(
