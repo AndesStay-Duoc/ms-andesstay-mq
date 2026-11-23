@@ -51,6 +51,9 @@ public class BindingService {
     public OperacionResultado crear(CrearBindingRequest peticion) {
         rechazarSiEsProtegido(peticion.exchange(), peticion.destino(),
                 peticion.tipoDestinoOPorOmision(), "crear");
+        // Después de la protección, para no cambiar lo que ya respondía: tocar la topología es
+        // 409 aunque además los argumentos estén mal. Ver ArgumentosAmqp.
+        ArgumentosAmqp.validarBinding(peticion.argumentos());
 
         Binding binding = construir(
                 peticion.exchange(),

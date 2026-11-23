@@ -1,5 +1,6 @@
 package cl.andesstay.mq.dto;
 
+import jakarta.validation.constraints.AssertFalse;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -24,13 +25,28 @@ public record CrearColaRequest(
         String nombre,
 
         Boolean durable,
+
+        /**
+         * Solo se admite false u omitido.
+         *
+         * Una cola exclusiva pertenece a la conexión AMQP que la declara, y aquí esa conexión es la
+         * de esta API, no la del consumidor que la va a usar. El resultado es una cola que ningún
+         * otro servicio puede consumir (RabbitMQ responde RESOURCE_LOCKED) y que el broker borra,
+         * con sus mensajes, en cuanto esta API se reinicia o pierde la conexión. No hay ningún uso
+         * legítimo de eso en una API de administración, así que se rechaza con un 400 en vez de
+         * crear algo que va a desaparecer. Se conserva el campo para que el rechazo sea explícito.
+         */
+        @AssertFalse(message = "no se admite una cola exclusiva: pertenecería a la conexión de esta "
+                + "API, ningún otro servicio podría consumirla y el broker la borraría al reiniciarse "
+                + "la API")
         Boolean exclusiva,
+
         Boolean autoDelete,
 
         /**
          * Argumentos de la cola: x-message-ttl, x-max-length, x-dead-letter-exchange,
-         * x-queue-type... Se pasan tal cual al broker, que es quien valida los nombres y los
-         * rangos; replicar aquí su tabla de argumentos sería una copia condenada a quedarse atrás.
+         * x-queue-type... Se validan contra una lista cerrada, con su tipo y su rango, antes de
+         * llegar al broker; ver service/ArgumentosAmqp para el porqué.
          */
         Map<String, Object> argumentos
 ) {

@@ -45,6 +45,8 @@ public class ExchangeService {
      */
     public OperacionResultado crear(CrearExchangeRequest peticion) {
         NombresAmqp.validar(RECURSO, peticion.nombre());
+        // Antes de llegar al broker, por la misma razón que en las colas. Ver ArgumentosAmqp.
+        ArgumentosAmqp.validarExchange(peticion.argumentos());
 
         Exchange exchange = peticion.tipo().construir(
                 peticion.nombre(),
