@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -56,15 +55,15 @@ public class ExchangeController {
     /**
      * 204 · Elimina el exchange y sus bindings. Las colas enlazadas siguen existiendo.
      *
-     * Los nombres de la topología de AndesStay responden 409 con o sin forzar: sin cmd.direct, las
-     * publicaciones de ms-andesstay-reservations dejan de llegar a ninguna cola. forzar se sigue
-     * aceptando para no romper a quien ya lo envía.
+     * Los nombres de la topología de AndesStay responden 409: sin cmd.direct, las publicaciones de
+     * ms-andesstay-reservations dejan de llegar a ninguna cola.
+     *
+     * Ya no hay parámetro forzar: no levantaba la protección y solo cambiaba el log (ver
+     * RecursoProtegidoException). Quien aún lo envíe recibe la misma respuesta.
      */
     @DeleteMapping("/{nombre}")
-    public ResponseEntity<Void> eliminar(
-            @PathVariable String nombre,
-            @RequestParam(defaultValue = "false") boolean forzar) {
-        servicio.eliminar(nombre, forzar);
+    public ResponseEntity<Void> eliminar(@PathVariable String nombre) {
+        servicio.eliminar(nombre);
         return ResponseEntity.noContent().build();
     }
 }

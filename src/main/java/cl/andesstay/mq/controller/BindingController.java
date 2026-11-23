@@ -63,8 +63,8 @@ public class BindingController {
     /**
      * 204 · Elimina el binding identificado por la tripleta.
      *
-     * No lleva forzar: un binding borrado se restituye con una sola petición y no se pierde ningún
-     * mensaje ya encolado. Lo que sí se descartan son los que se publiquen mientras no existe, y la
+     * Un binding borrado se restituye con una sola petición y no se pierde ningún mensaje ya
+     * encolado. Lo que sí se descartan son los que se publiquen mientras no existe, y la
      * respuesta lo advierte. Los bindings de la topología de AndesStay —los que salen de un exchange
      * protegido o llegan a un recurso protegido— responden 409.
      *

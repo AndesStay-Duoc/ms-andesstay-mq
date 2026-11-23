@@ -44,8 +44,9 @@ public record RabbitMQProperties(
          * del sistema entero, y un borrado de cola en RabbitMQ es irreversible: se van los mensajes
          * que tuviera dentro.
          *
-         * ?forzar=true no la levanta. Cambiar la topologia del sistema exige cambiar esta lista y
-         * volver a desplegar, de modo que no pueda ocurrir por un parametro de mas en una peticion.
+         * Ningun parametro de la API la levanta. Cambiar la topologia del sistema exige cambiar esta
+         * lista y volver a desplegar, de modo que no pueda ocurrir por un parametro de mas en una
+         * peticion.
          */
         List<String> protegidos
 ) {

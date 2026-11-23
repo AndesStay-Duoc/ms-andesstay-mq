@@ -125,10 +125,9 @@ public class QueueService {
      * Elimina la cola.
      *
      * Es irreversible y se lleva los mensajes que tuviera dentro, de ahí la protección de los
-     * nombres de la topología, que forzar no levanta. El parámetro se conserva para no romper a
-     * quien ya lo envía; en una cola no protegida nunca fue necesario.
+     * nombres de la topología, que no se levanta desde la API.
      */
-    public OperacionResultado eliminar(String nombre, boolean forzar) {
+    public OperacionResultado eliminar(String nombre) {
         comprobarProteccion(nombre, "eliminar");
 
         // Se comprueba ANTES de borrar porque desde RabbitMQ 3.13 queue.delete es idempotente:
@@ -145,7 +144,7 @@ public class QueueService {
             throw new RecursoNoEncontradoException(RECURSO, nombre);
         }
 
-        log.warn("[Colas] Eliminada {}{}", nombre, forzar ? " (forzado)" : "");
+        log.warn("[Colas] Eliminada {}", nombre);
         return OperacionResultado.de(RECURSO, nombre, "eliminada",
                 "la cola y los mensajes que contenía se eliminaron de forma irreversible");
     }
@@ -158,14 +157,14 @@ public class QueueService {
      * sistema: su contenido es la evidencia de los fallos, y DeadLetterConsumer de notify ya las
      * mantiene vacías confirmando cada mensaje después de registrarlo.
      */
-    public OperacionResultado purgar(String nombre, boolean forzar) {
+    public OperacionResultado purgar(String nombre) {
         comprobarProteccion(nombre, "purgar");
 
         // purgeQueue(String) SÍ lanza cuando la cola no existe, al contrario que deleteQueue: el
         // NOT_FOUND del broker sube como AmqpIOException y el manejador lo traduce a 404.
         int purgados = amqpAdmin.purgeQueue(nombre);
 
-        log.warn("[Colas] Purgada {}: {} mensaje(s){}", nombre, purgados, forzar ? " (forzado)" : "");
+        log.warn("[Colas] Purgada {}: {} mensaje(s)", nombre, purgados);
         return OperacionResultado.purga(nombre, purgados);
     }
 

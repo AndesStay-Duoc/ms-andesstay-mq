@@ -23,7 +23,6 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.io.IOException;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -90,7 +89,7 @@ class QueueControllerTest {
         // tocar el broker ya sería un problema.
         verify(servicio, never()).listar();
         verify(servicio, never()).crear(any());
-        verify(servicio, never()).eliminar(anyString(), anyBoolean());
+        verify(servicio, never()).eliminar(anyString());
     }
 
     // ── 403 · token válido, rol insuficiente ─────────────────────────────────
@@ -103,7 +102,7 @@ class QueueControllerTest {
         mockMvc.perform(comoCliente(delete(RUTA + "/q.cmd.email")))
                 .andExpect(status().isForbidden());
 
-        verify(servicio, never()).eliminar(anyString(), anyBoolean());
+        verify(servicio, never()).eliminar(anyString());
     }
 
     // ── 2xx · la ruta feliz ──────────────────────────────────────────────────
@@ -133,7 +132,7 @@ class QueueControllerTest {
     @Test
     @DisplayName("204 · un Admin elimina una cola libre, sin cuerpo en la respuesta")
     void adminElimina204() throws Exception {
-        when(servicio.eliminar(eq("q.pruebas.demo"), eq(false))).thenReturn(
+        when(servicio.eliminar(eq("q.pruebas.demo"))).thenReturn(
                 OperacionResultado.de("cola", "q.pruebas.demo", "eliminada", "eliminada"));
 
         mockMvc.perform(comoAdmin(delete(RUTA + "/q.pruebas.demo")))
@@ -143,9 +142,11 @@ class QueueControllerTest {
     @Test
     @DisplayName("200 · la purga responde con el conteo, por eso no es 204")
     void purga200ConConteo() throws Exception {
-        when(servicio.purgar(eq("q.pruebas.demo.dlq"), eq(true)))
+        when(servicio.purgar(eq("q.pruebas.demo.dlq")))
                 .thenReturn(OperacionResultado.purga("q.pruebas.demo.dlq", 42));
 
+        // Se sigue enviando ?forzar=true a propósito: el parámetro ya no existe, y quien lo mande
+        // tiene que recibir la misma respuesta, no un error.
         mockMvc.perform(comoAdmin(post(RUTA + "/q.pruebas.demo.dlq/purge").param("forzar", "true")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mensajesPurgados").value(42));
@@ -236,7 +237,7 @@ class QueueControllerTest {
     @Test
     @DisplayName("404 · eliminar una cola inexistente")
     void inexistenteEs404() throws Exception {
-        when(servicio.eliminar(anyString(), anyBoolean()))
+        when(servicio.eliminar(anyString()))
                 .thenThrow(new RecursoNoEncontradoException("cola", "q.no.existe"));
 
         mockMvc.perform(comoAdmin(delete(RUTA + "/q.no.existe")))
@@ -248,18 +249,19 @@ class QueueControllerTest {
     @Test
     @DisplayName("409 · eliminar una cola de la topología de AndesStay")
     void protegidaEs409() throws Exception {
-        when(servicio.eliminar(eq("q.cmd.email"), eq(false)))
+        when(servicio.eliminar(eq("q.cmd.email")))
                 .thenThrow(new RecursoProtegidoException("cola", "q.cmd.email", "eliminar"));
 
         mockMvc.perform(comoAdmin(delete(RUTA + "/q.cmd.email")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value("RECURSO_PROTEGIDO"))
                 // El 409 tiene que decir dónde se decide la protección, o hay que leer el código
-                // fuente, y que forzar no la levanta.
+                // fuente, y no nombrar un parámetro forzar que ya no existe.
                 .andExpect(jsonPath("$.detalle").value(
                         org.hamcrest.Matchers.allOf(
                                 org.hamcrest.Matchers.containsString("andesstay.mq.protegidos"),
-                                org.hamcrest.Matchers.containsString("ni siquiera con ?forzar=true"))));
+                                org.hamcrest.Matchers.not(
+                                        org.hamcrest.Matchers.containsString("forzar")))));
     }
 
     @Test

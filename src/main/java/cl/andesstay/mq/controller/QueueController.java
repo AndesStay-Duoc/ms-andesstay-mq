@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -69,15 +68,16 @@ public class QueueController {
     /**
      * 204 · Elimina la cola, con los mensajes que contenga.
      *
-     * Los nombres de la topología de AndesStay responden 409 con o sin forzar: borrar q.cmd.email
-     * deja a ms-andesstay-notify sin su cola de trabajo, y en RabbitMQ es irreversible. forzar se
-     * sigue aceptando para no romper a quien ya lo envía.
+     * Los nombres de la topología de AndesStay responden 409: borrar q.cmd.email deja a
+     * ms-andesstay-notify sin su cola de trabajo, y en RabbitMQ es irreversible.
+     *
+     * Ya no hay parámetro forzar: no levantaba la protección y solo cambiaba el log (ver
+     * RecursoProtegidoException). Quien aún lo envíe recibe la misma respuesta, porque Spring
+     * ignora los parámetros de consulta que el método no declara.
      */
     @DeleteMapping("/{nombre}")
-    public ResponseEntity<Void> eliminar(
-            @PathVariable String nombre,
-            @RequestParam(defaultValue = "false") boolean forzar) {
-        servicio.eliminar(nombre, forzar);
+    public ResponseEntity<Void> eliminar(@PathVariable String nombre) {
+        servicio.eliminar(nombre);
         return ResponseEntity.noContent().build();
     }
 
@@ -88,9 +88,7 @@ public class QueueController {
      * vacía. El conteo es el motivo de responder 200 con cuerpo en lugar de 204.
      */
     @PostMapping("/{nombre}/purge")
-    public OperacionResultado purgar(
-            @PathVariable String nombre,
-            @RequestParam(defaultValue = "false") boolean forzar) {
-        return servicio.purgar(nombre, forzar);
+    public OperacionResultado purgar(@PathVariable String nombre) {
+        return servicio.purgar(nombre);
     }
 }
